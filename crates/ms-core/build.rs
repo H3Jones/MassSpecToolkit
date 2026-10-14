@@ -13,7 +13,7 @@ struct Isotope {
     atomic_number: u8,
     mass_number: u16,
     symbol: String,
-    relative_atomic_mass: Option<f64>,
+    relative_atomic_mass: f64,
     isotopic_abundance: Option<f64>,
 }
 
@@ -61,18 +61,19 @@ fn generate_isotope_table() -> BuildResult<()> {
 
         let symbol = required_string(table, "symbol", key)?.to_owned();
         if let Some(previous_atomic_number) = elements.insert(symbol.clone(), atomic_number)
-            && previous_atomic_number != atomic_number {
-                return Err(invalid_data(format!(
-                    "element symbol {symbol} maps to multiple atomic numbers"
-                ))
-                .into());
-            }
+            && previous_atomic_number != atomic_number
+        {
+            return Err(invalid_data(format!(
+                "element symbol {symbol} maps to multiple atomic numbers"
+            ))
+            .into());
+        }
 
         isotopes.push(Isotope {
             atomic_number,
             mass_number,
             symbol,
-            relative_atomic_mass: optional_float(table, "relative_atomic_mass", key)?,
+            relative_atomic_mass: required_float(table, "relative_atomic_mass", key)?,
             isotopic_abundance: optional_float(table, "isotopic_abundance", key)?,
         });
     }
@@ -114,11 +115,11 @@ fn generate_isotope_table() -> BuildResult<()> {
     ));
     for isotope in isotopes {
         generated.push_str(&format!(
-            "    IsotopeData {{ id: IsotopeId {{ atomic_number: {}, mass_number: {} }}, symbol: {:?}, relative_atomic_mass: {}, isotopic_abundance: {} }},\n",
+            "    IsotopeData {{ id: IsotopeId {{ atomic_number: {}, mass_number: {} }}, symbol: {:?}, relative_atomic_mass: {:?}, isotopic_abundance: {} }},\n",
             isotope.atomic_number,
             isotope.mass_number,
             isotope.symbol,
-            float_option(isotope.relative_atomic_mass),
+            isotope.relative_atomic_mass,
             float_option(isotope.isotopic_abundance),
         ));
     }
@@ -189,6 +190,21 @@ fn optional_float(
             .map(Some)
             .ok_or_else(|| invalid_data(format!("isotope {isotope} has invalid {field}")).into()),
     }
+}
+
+fn required_float(
+    table: &toml::map::Map<String, Value>,
+    field: &str,
+    isotope: &str,
+) -> BuildResult<f64> {
+    table
+        .get(field)
+        .and_then(|value| {
+            value
+                .as_float()
+                .or_else(|| value.as_integer().map(|integer| integer as f64))
+        })
+        .ok_or_else(|| invalid_data(format!("isotope {isotope} has no valid {field}")).into())
 }
 
 fn float_option(value: Option<f64>) -> String {

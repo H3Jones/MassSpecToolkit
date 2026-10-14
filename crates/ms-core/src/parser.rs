@@ -4,7 +4,7 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::{
-    formula::{Atom, Formula},
+    formula::{Atom, AtomCount, Formula},
     isotopes::{IsotopeId, atomic_number_for_symbol, isotope_data, most_abundant_isotope},
 };
 
@@ -163,14 +163,13 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
             })?,
         };
 
-        atoms.push(Atom {
-            isotope,
+        atoms.push(AtomCount {
+            atom: Atom::from_isotope_id(isotope, isotope_was_specified),
             count: parsed_atom.count,
-            isotope_was_specified,
         });
     }
 
-    Ok(Formula::from_atoms(atoms))
+    Ok(Formula::from_atom_counts(atoms))
 }
 
 struct ParsedAtom {
@@ -192,45 +191,30 @@ mod tests {
     #[test]
     fn resolves_unspecified_isotopes_to_most_abundant() {
         let formula = parse_formula("C6H12O6").unwrap();
-        assert_eq!(
-            formula.atoms(),
-            &[
-                Atom {
-                    isotope: IsotopeId {
-                        atomic_number: 6,
-                        mass_number: 12,
-                    },
-                    count: 6,
-                    isotope_was_specified: false,
-                },
-                Atom {
-                    isotope: IsotopeId {
-                        atomic_number: 1,
-                        mass_number: 1,
-                    },
-                    count: 12,
-                    isotope_was_specified: false,
-                },
-                Atom {
-                    isotope: IsotopeId {
-                        atomic_number: 8,
-                        mass_number: 16,
-                    },
-                    count: 6,
-                    isotope_was_specified: false,
-                },
-            ]
-        );
+        let atom_counts = formula.atom_counts();
+        assert_eq!(atom_counts.len(), 3);
+        assert_eq!(atom_counts[0].atom.symbol(), "C");
+        assert_eq!(atom_counts[0].atom.mass_number(), 12);
+        assert_eq!(atom_counts[0].count, 6);
+        assert!(!atom_counts[0].atom.isotope_was_specified());
+        assert_eq!(atom_counts[1].atom.symbol(), "H");
+        assert_eq!(atom_counts[1].atom.mass_number(), 1);
+        assert_eq!(atom_counts[1].count, 12);
+        assert_eq!(atom_counts[2].atom.symbol(), "O");
+        assert_eq!(atom_counts[2].atom.mass_number(), 16);
+        assert_eq!(atom_counts[2].count, 6);
     }
 
     #[test]
     fn resolves_explicit_isotopes_and_defaults_other_elements() {
         let formula = Formula::parse("^13CH2O").unwrap();
-        assert_eq!(formula.atoms()[0].isotope.mass_number, 13);
-        assert_eq!(formula.atoms()[0].count, 1);
-        assert_eq!(formula.atoms()[1].isotope.mass_number, 1);
-        assert_eq!(formula.atoms()[1].count, 2);
-        assert_eq!(formula.atoms()[2].isotope.mass_number, 16);
+        assert_eq!(formula.atom_counts()[0].atom.mass_number(), 13);
+        assert_eq!(formula.atom_counts()[0].count, 1);
+        assert!(formula.atom_counts()[0].atom.isotope_was_specified());
+        assert_eq!(formula.atom_counts()[1].atom.mass_number(), 1);
+        assert_eq!(formula.atom_counts()[1].count, 2);
+        assert!(!formula.atom_counts()[1].atom.isotope_was_specified());
+        assert_eq!(formula.atom_counts()[2].atom.mass_number(), 16);
     }
 
     #[test]
@@ -255,21 +239,21 @@ mod tests {
     #[test]
     fn resolves_repeated_elements() {
         let formula = Formula::parse("CH3C2H2CH2CH2").unwrap();
-        assert_eq!(formula.atoms().len(), 2);
-        assert_eq!(formula.atoms()[0].isotope.atomic_number, 6);
-        assert_eq!(formula.atoms()[0].count, 5);
-        assert_eq!(formula.atoms()[1].isotope.atomic_number, 1);
-        assert_eq!(formula.atoms()[1].count, 9);
+        assert_eq!(formula.atom_counts().len(), 2);
+        assert_eq!(formula.atom_counts()[0].atom.symbol(), "C");
+        assert_eq!(formula.atom_counts()[0].count, 5);
+        assert_eq!(formula.atom_counts()[1].atom.symbol(), "H");
+        assert_eq!(formula.atom_counts()[1].count, 9);
     }
 
     #[test]
     fn combines_repeated_terms_within_each_isotope_selection() {
         let formula = Formula::parse("C^13C2C").unwrap();
-        assert_eq!(formula.atoms().len(), 2);
-        assert_eq!(formula.atoms()[0].count, 2);
-        assert!(!formula.atoms()[0].isotope_was_specified);
-        assert_eq!(formula.atoms()[1].count, 2);
-        assert!(formula.atoms()[1].isotope_was_specified);
+        assert_eq!(formula.atom_counts().len(), 2);
+        assert_eq!(formula.atom_counts()[0].count, 2);
+        assert!(!formula.atom_counts()[0].atom.isotope_was_specified());
+        assert_eq!(formula.atom_counts()[1].count, 2);
+        assert!(formula.atom_counts()[1].atom.isotope_was_specified());
     }
 
     #[test]

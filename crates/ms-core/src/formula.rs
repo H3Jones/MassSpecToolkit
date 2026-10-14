@@ -1,33 +1,52 @@
 use crate::{
-    isotopes::{IsotopeId, isotope_data},
+    isotopes::{IsotopeData, IsotopeId, isotope_data},
     parser::{self, FormulaParseError},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Atom {
-    pub isotope: IsotopeId,
-    pub count: u32,
-    pub isotope_was_specified: bool,
+    isotope: IsotopeId,
+    isotope_was_specified: bool,
 }
 
-/// Returns a string representation of an isotope, including its mass number and symbol.
-/// i.e. "^13C" for carbon-13.
-fn isotope_representation(symbol: &str, mass_number: u16) -> String {
-    format!("^{mass_number}{symbol}")
-}
-
-impl std::fmt::Display for Atom {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let isotope = isotope_data(self.isotope).ok_or(std::fmt::Error)?;
-        if self.isotope_was_specified {
-            write!(
-                f,
-                "{}",
-                isotope_representation(isotope.symbol, self.isotope.mass_number)
-            )?;
-        } else {
-            write!(f, "{}", isotope.symbol)?;
+impl Atom {
+    pub(crate) fn from_isotope_id(isotope: IsotopeId, isotope_was_specified: bool) -> Self {
+        Self {
+            isotope,
+            isotope_was_specified,
         }
+    }
+
+    fn data(&self) -> &'static IsotopeData {
+        isotope_data(self.isotope).expect("Atom is created only from a valid isotope")
+    }
+
+    pub fn symbol(&self) -> &'static str {
+        self.data().symbol
+    }
+
+    pub fn mass_number(&self) -> u16 {
+        self.isotope.mass_number
+    }
+
+    pub fn isotope_was_specified(&self) -> bool {
+        self.isotope_was_specified
+    }
+
+    pub fn relative_atomic_mass(&self) -> f64 {
+        self.data().relative_atomic_mass
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AtomCount {
+    pub atom: Atom,
+    pub count: u32,
+}
+
+impl std::fmt::Display for AtomCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.atom)?;
         if self.count != 1 {
             write!(f, "{}", self.count)?;
         }
@@ -35,29 +54,50 @@ impl std::fmt::Display for Atom {
     }
 }
 
+impl AtomCount {
+    pub fn mass(&self) -> f64 {
+        self.atom.relative_atomic_mass() * self.count as f64
+    }
+}
+
+impl std::fmt::Display for Atom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.isotope_was_specified {
+            write!(f, "^{}{}", self.mass_number(), self.symbol())?;
+        } else {
+            write!(f, "{}", self.symbol())?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Formula {
-    atoms: Vec<Atom>,
+    atom_counts: Vec<AtomCount>,
 }
 
 impl Formula {
-    pub(crate) fn from_atoms(atoms: Vec<Atom>) -> Self {
-        Self { atoms }
+    pub(crate) fn from_atom_counts(atom_counts: Vec<AtomCount>) -> Self {
+        Self { atom_counts }
     }
 
     pub fn parse(input: &str) -> Result<Self, FormulaParseError> {
         parser::parse_formula(input)
     }
 
-    pub fn atoms(&self) -> &[Atom] {
-        &self.atoms
+    pub fn atom_counts(&self) -> &[AtomCount] {
+        &self.atom_counts
+    }
+
+    pub fn mass(&self) -> f64 {
+        self.atom_counts.iter().map(|ac| ac.mass()).sum()
     }
 }
 
 impl std::fmt::Display for Formula {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for atom in &self.atoms {
-            write!(f, "{}", atom)?;
+        for atom_count in &self.atom_counts {
+            write!(f, "{}", atom_count)?;
         }
         Ok(())
     }
@@ -67,23 +107,31 @@ impl std::fmt::Display for Formula {
 mod tests {
     use super::*;
 
+    const C_12_MASS: f64 = 12.0;
+    const H_1_MASS: f64 = 1.00782503223;
+    const O_16_MASS: f64 = 15.99491461957; 
+
     #[test]
     fn displays_isotope_notation_and_non_unit_counts() {
-        let carbon_13 = Atom {
-            isotope: IsotopeId {
-                atomic_number: 6,
-                mass_number: 13,
-            },
+        let carbon_13 = AtomCount {
+            atom: Atom::from_isotope_id(
+                IsotopeId {
+                    atomic_number: 6,
+                    mass_number: 13,
+                },
+                true,
+            ),
             count: 1,
-            isotope_was_specified: true,
         };
-        let oxygen_16 = Atom {
-            isotope: IsotopeId {
-                atomic_number: 8,
-                mass_number: 16,
-            },
+        let oxygen_16 = AtomCount {
+            atom: Atom::from_isotope_id(
+                IsotopeId {
+                    atomic_number: 8,
+                    mass_number: 16,
+                },
+                true,
+            ),
             count: 2,
-            isotope_was_specified: true,
         };
 
         assert_eq!(carbon_13.to_string(), "^13C");
@@ -91,8 +139,30 @@ mod tests {
     }
 
     #[test]
+    fn atom_exposes_properties_without_exposing_the_isotope_id() {
+        let atom = Atom::from_isotope_id(
+            IsotopeId {
+                atomic_number: 6,
+                mass_number: 13,
+            },
+            true,
+        );
+        assert_eq!(atom.symbol(), "C");
+        assert_eq!(atom.mass_number(), 13);
+        assert!(atom.isotope_was_specified());
+        assert_eq!(atom.relative_atomic_mass(), 13.00335483507);
+    }
+
+    #[test]
     fn displays_formula_atoms_consecutively() {
         let formula = Formula::parse("^13CH2O").unwrap();
         assert_eq!(formula.to_string(), "^13CH2O");
+    }
+
+    #[test]
+    fn calculates_formula_mass() {
+        let formula = Formula::parse("C6H12O6").unwrap();
+        let expected_mass = 6.0 * C_12_MASS + 12.0 * H_1_MASS + 6.0 * O_16_MASS; 
+        assert_eq!(formula.mass(), expected_mass);
     }
 }

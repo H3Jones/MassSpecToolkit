@@ -10,7 +10,7 @@ pub struct IsotopeId {
 pub struct IsotopeData {
     pub id: IsotopeId,
     pub symbol: &'static str,
-    pub relative_atomic_mass: Option<f64>,
+    pub relative_atomic_mass: f64,
     pub isotopic_abundance: Option<f64>,
 }
 
@@ -61,7 +61,7 @@ mod tests {
         })
         .expect("12C should be in the isotope table");
         assert_eq!(carbon_12.symbol, "C");
-        assert_eq!(carbon_12.relative_atomic_mass, Some(12.0));
+        assert_eq!(carbon_12.relative_atomic_mass, 12.0);
 
         assert!(
             isotope_data(IsotopeId {
