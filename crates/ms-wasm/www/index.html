@@ -36,20 +36,32 @@
   </head>
   <body>
     <main>
-      <h1>Formula mass calculator</h1>
+      <h1>Ion mass calculator</h1>
       <form id="formula-form">
         <label for="formula">Chemical formula</label>
         <input id="formula" name="formula" value="C6H12O6" required />
+        <label for="charge">Charge</label>
+        <input
+          id="charge"
+          name="charge"
+          type="number"
+          min="-255"
+          max="255"
+          step="1"
+          value="1"
+          required
+        />
         <button id="calculate" type="submit" disabled>Calculate</button>
       </form>
       <pre id="result" aria-live="polite">Loading WebAssembly…</pre>
     </main>
 
     <script type="module">
-      import init, { parse_formula } from "../pkg/ms_wasm.js";
+      import init, { evaluate_ion } from "../pkg/ms_wasm.js";
 
       const form = document.querySelector("#formula-form");
       const formulaInput = document.querySelector("#formula");
+      const chargeInput = document.querySelector("#charge");
       const calculateButton = document.querySelector("#calculate");
       const result = document.querySelector("#result");
 
@@ -64,9 +76,13 @@
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         try {
-          result.textContent = JSON.stringify(parse_formula(formulaInput.value), null, 2);
+          result.textContent = JSON.stringify(
+            evaluate_ion(formulaInput.value, chargeInput.valueAsNumber),
+            null,
+            2,
+          );
         } catch (error) {
-          result.textContent = `Could not parse formula: ${String(error)}`;
+          result.textContent = `Could not evaluate ion: ${String(error)}`;
         }
       });
     </script>
