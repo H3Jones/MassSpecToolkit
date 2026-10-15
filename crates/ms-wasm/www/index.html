@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MassSpecToolkit Wasm demo</title>
+    <style>
+      body {
+        font: 16px system-ui, sans-serif;
+        margin: 2rem auto;
+        max-width: 42rem;
+        padding: 0 1rem;
+      }
+
+      form {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      input {
+        flex: 1;
+        min-width: 0;
+        padding: 0.5rem;
+      }
+
+      button {
+        padding: 0.5rem 1rem;
+      }
+
+      pre {
+        background: #f3f4f6;
+        overflow-x: auto;
+        padding: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Formula mass calculator</h1>
+      <form id="formula-form">
+        <label for="formula">Chemical formula</label>
+        <input id="formula" name="formula" value="C6H12O6" required />
+        <button id="calculate" type="submit" disabled>Calculate</button>
+      </form>
+      <pre id="result" aria-live="polite">Loading WebAssembly…</pre>
+    </main>
+
+    <script type="module">
+      import init, { parse_formula } from "../pkg/ms_wasm.js";
+
+      const form = document.querySelector("#formula-form");
+      const formulaInput = document.querySelector("#formula");
+      const calculateButton = document.querySelector("#calculate");
+      const result = document.querySelector("#result");
+
+      try {
+        await init();
+        calculateButton.disabled = false;
+        result.textContent = "Enter a formula and select Calculate.";
+      } catch (error) {
+        result.textContent = `Unable to load the WebAssembly module: ${String(error)}`;
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        try {
+          result.textContent = JSON.stringify(parse_formula(formulaInput.value), null, 2);
+        } catch (error) {
+          result.textContent = `Could not parse formula: ${String(error)}`;
+        }
+      });
+    </script>
+  </body>
+</html>
