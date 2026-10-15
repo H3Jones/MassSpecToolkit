@@ -25,7 +25,7 @@ struct AtomCountResult {
     mass_number: u16,
     isotope_was_specified: bool,
     atom_ram: f64,
-    count: u32,
+    count: i32,
     total_mass: f64,
 }
 

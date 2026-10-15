@@ -6,4 +6,3 @@ pub(crate) const O_16_MASS: f64 = 15.99491461957;
 // Precomputed masses for common molecules.
 pub(crate) const H2O_MASS: f64 = 2.0 * H_1_MASS + O_16_MASS;
 pub(crate) const C6H6O6_MASS: f64 = 6.0 * C_12_MASS + 6.0 * H_1_MASS + 6.0 * O_16_MASS;
-

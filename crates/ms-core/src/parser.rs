@@ -87,7 +87,7 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
 
         let mut symbol = None;
         let mut mass_number = None;
-        let mut count = 1;
+        let mut count = 1_i32;
         for part in atom_pair.into_inner() {
             match part.as_rule() {
                 Rule::isotope => {
@@ -101,8 +101,11 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
                 Rule::number => {
                     let value = part.as_str();
                     count = value
-                        .parse::<u32>()
+                        .parse::<i32>()
                         .map_err(|_| FormulaParseError::InvalidAtomCount(value.to_owned()))?;
+                    if count == 0 {
+                        return Err(FormulaParseError::InvalidAtomCount(value.to_owned()));
+                    }
                 }
                 _ => unreachable!("grammar only produces isotope, element, and number here"),
             }
@@ -169,13 +172,13 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
         });
     }
 
-    Ok(Formula::from_atom_counts(atoms))
+    Formula::from_atom_counts(atoms)
 }
 
 struct ParsedAtom {
     symbol: String,
     mass_number: Option<u16>,
-    count: u32,
+    count: i32,
 }
 
 fn cached_atomic_number(symbol: &str, cache: &mut HashMap<String, Option<u8>>) -> Option<u8> {
@@ -259,8 +262,20 @@ mod tests {
     #[test]
     fn reports_overflow_when_combining_counts() {
         assert!(matches!(
-            Formula::parse("C4294967295C"),
+            Formula::parse("C2147483647C"),
             Err(FormulaParseError::CountOverflow { symbol }) if symbol == "C"
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_and_out_of_range_atom_counts() {
+        assert!(matches!(
+            Formula::parse("C0"),
+            Err(FormulaParseError::InvalidAtomCount(value)) if value == "0"
+        ));
+        assert!(matches!(
+            Formula::parse("C2147483648"),
+            Err(FormulaParseError::InvalidAtomCount(value)) if value == "2147483648"
         ));
     }
 }
