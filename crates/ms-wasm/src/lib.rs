@@ -15,8 +15,17 @@ struct IonResult {
     formula: String,
     charge: i32,
     mass: f64,
-    mass_to_charge: f64,
+    mass_to_charge: Option<f64>,
     atom_counts: Vec<AtomCountResult>,
+}
+
+#[derive(Serialize)]
+struct MassSplitResult {
+    formula_a: FormulaResult,
+    formula_b: FormulaResult,
+    formula_a_only: Option<FormulaResult>,
+    formula_b_only: Option<FormulaResult>,
+    mass_difference: f64,
 }
 
 #[derive(Serialize)]
@@ -38,7 +47,7 @@ pub fn parse_formula(input: &str) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(&result).map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
-/// Evaluates a formula with a signed charge and returns its ion mass and mass-to-charge ratio.
+/// Evaluates a formula with a signed charge and returns its mass and, for ions, mass-to-charge ratio.
 #[wasm_bindgen]
 pub fn evaluate_ion(input: &str, charge: i32) -> Result<JsValue, JsValue> {
     let charge_type = Charge::try_from(charge).map_err(|error| JsValue::from_str(error))?;
@@ -49,11 +58,41 @@ pub fn evaluate_ion(input: &str, charge: i32) -> Result<JsValue, JsValue> {
         formula: formula_result.formula,
         charge,
         mass: ion.mass(),
-        mass_to_charge: ion.mass_to_charge(),
+        mass_to_charge: (charge != 0).then(|| ion.mass_to_charge()),
         atom_counts: formula_result.atom_counts,
     };
 
-    serde_wasm_bindgen::to_value(&result).map_err(|error| JsValue::from_str(&error.to_string()))
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_missing_as_null(true);
+    result
+        .serialize(&serializer)
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+/// Compares two formulas and returns their formula-specific components and signed mass difference.
+#[wasm_bindgen]
+pub fn mass_split(formula_a: &str, formula_b: &str) -> Result<JsValue, JsValue> {
+    let formula_a =
+        Formula::parse(formula_a).map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let formula_b =
+        Formula::parse(formula_b).map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let difference = formula_a.difference(&formula_b);
+    let mass_difference = match difference.mass() {
+        mass if mass == 0.0 => 0.0,
+        mass => mass,
+    };
+    let (formula_b_only, formula_a_only) = difference.as_split();
+    let result = MassSplitResult {
+        formula_a: formula_result(&formula_a),
+        formula_b: formula_result(&formula_b),
+        formula_a_only: formula_a_only.as_ref().map(formula_result),
+        formula_b_only: formula_b_only.as_ref().map(formula_result),
+        mass_difference,
+    };
+
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_missing_as_null(true);
+    result
+        .serialize(&serializer)
+        .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 fn formula_result(formula: &Formula) -> FormulaResult {

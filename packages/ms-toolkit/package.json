@@ -1,0 +1,47 @@
+{
+  "name": "ms-toolkit",
+  "version": "0.1.0",
+  "description": "Mass spectrometry calculator and plotting web components backed by Rust/WebAssembly",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./dist/*.js"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ion-calculator": {
+      "types": "./dist/elements/ion-calculator.d.ts",
+      "import": "./dist/ion-calculator.js"
+    },
+    "./mass-split": {
+      "types": "./dist/elements/mass-split.d.ts",
+      "import": "./dist/mass-split.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core.js"
+    }
+  },
+  "scripts": {
+    "wasm": "wasm-pack build ../../crates/ms-wasm --target web",
+    "dev": "vp dev playground --config vite.config.ts",
+    "build": "vp build && tsc -p tsconfig.build.json",
+    "test": "vp test",
+    "check": "vp check"
+  },
+  "dependencies": {
+    "comlink": "^4.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.0",
+    "vite-plus": "^1.2.0"
+  }
+}

@@ -1,2 +1,4 @@
 # Ignore any target directories
 target/
+node_modules/
+dist/
