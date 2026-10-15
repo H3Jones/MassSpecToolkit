@@ -52,6 +52,7 @@ pub fn most_abundant_isotope(symbol: &str) -> Option<IsotopeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::C_12_MASS;
 
     #[test]
     fn isotope_table_contains_common_isotopes() {
@@ -61,7 +62,7 @@ mod tests {
         })
         .expect("12C should be in the isotope table");
         assert_eq!(carbon_12.symbol, "C");
-        assert_eq!(carbon_12.relative_atomic_mass, 12.0);
+        assert_eq!(carbon_12.relative_atomic_mass, C_12_MASS);
 
         assert!(
             isotope_data(IsotopeId {

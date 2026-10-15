@@ -1,3 +1,4 @@
+/// Module for handling chemical formulas in mass spectrometry.
 use crate::{
     isotopes::{IsotopeData, IsotopeId, isotope_data},
     parser::{self, FormulaParseError},
@@ -106,10 +107,7 @@ impl std::fmt::Display for Formula {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const C_12_MASS: f64 = 12.0;
-    const H_1_MASS: f64 = 1.00782503223;
-    const O_16_MASS: f64 = 15.99491461957; 
+    use crate::test_support::{C_12_MASS, C_13_MASS, H_1_MASS, O_16_MASS};
 
     #[test]
     fn displays_isotope_notation_and_non_unit_counts() {
@@ -150,7 +148,7 @@ mod tests {
         assert_eq!(atom.symbol(), "C");
         assert_eq!(atom.mass_number(), 13);
         assert!(atom.isotope_was_specified());
-        assert_eq!(atom.relative_atomic_mass(), 13.00335483507);
+        assert_eq!(atom.relative_atomic_mass(), C_13_MASS);
     }
 
     #[test]
@@ -162,7 +160,7 @@ mod tests {
     #[test]
     fn calculates_formula_mass() {
         let formula = Formula::parse("C6H12O6").unwrap();
-        let expected_mass = 6.0 * C_12_MASS + 12.0 * H_1_MASS + 6.0 * O_16_MASS; 
+        let expected_mass = 6.0 * C_12_MASS + 12.0 * H_1_MASS + 6.0 * O_16_MASS;
         assert_eq!(formula.mass(), expected_mass);
     }
 }
