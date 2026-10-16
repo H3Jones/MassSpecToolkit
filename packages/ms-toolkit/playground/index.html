@@ -13,6 +13,20 @@
     <ms-ion-calculator formula="C6H12O6" charge="1"></ms-ion-calculator>
     <h1>&lt;ms-mass-split&gt;</h1>
     <ms-mass-split formula-a="C14H23S" formula-b="C17H19"></ms-mass-split>
+    <h1>&lt;ms-mass-spectrum&gt;</h1>
+    <ms-mass-spectrum id="centroid-spectrum" chart-title="Example centroid mass spectrum" color="#2563eb"></ms-mass-spectrum>
+    <h2>Ethanol isotope distribution</h2>
+    <p>63 peaks from the exhaustive fine-structure distribution.</p>
+    <ms-mass-spectrum
+      id="isotope-spectrum"
+      x-label="Mass (Da)"
+      mz-min="45.5"
+      mz-max="56.5"
+      labels="false"
+      color="#2563eb"
+    >
+      <span slot="title">C<sub>2</sub>H<sub>6</sub>O neutral isotope distribution</span>
+    </ms-mass-spectrum>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

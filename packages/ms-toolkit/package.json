@@ -24,6 +24,14 @@
       "types": "./dist/elements/mass-split.d.ts",
       "import": "./dist/mass-split.js"
     },
+    "./mass-spectrum": {
+      "types": "./dist/elements/mass-spectrum.d.ts",
+      "import": "./dist/mass-spectrum.js"
+    },
+    "./charts": {
+      "types": "./dist/charts/index.d.ts",
+      "import": "./dist/charts.js"
+    },
     "./core": {
       "types": "./dist/core/index.d.ts",
       "import": "./dist/core.js"
@@ -37,6 +45,8 @@
     "check": "vp check"
   },
   "dependencies": {
+    "@tanstack/charts": "^1.1.0",
+    "dompurify": "^3.3.0",
     "comlink": "^4.4.2"
   },
   "devDependencies": {

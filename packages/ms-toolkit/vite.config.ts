@@ -20,6 +20,8 @@ export default defineConfig({
         core: src('core/index.ts'),
         'ion-calculator': src('elements/ion-calculator.ts'),
         'mass-split': src('elements/mass-split.ts'),
+        'mass-spectrum': src('elements/mass-spectrum.ts'),
+        charts: src('charts/index.ts'),
       },
     },
   },

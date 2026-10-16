@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { AtomCount } from '../src/core/types.ts';
-import { formatAtomHtml, formatFormulaHtml } from '../src/core/utils.ts';
+import { formatAtomHtml, formatFormulaHtml, formatIsotopeLabelHtml } from '../src/core/utils.ts';
 
 describe('formula HTML formatters', () => {
   it('formats isotope atom labels as superscript elements', () => {
@@ -14,6 +14,39 @@ describe('formula HTML formatters', () => {
     };
 
     expect(formatAtomHtml(atom)).toBe('<sup>13</sup>C');
+  });
+
+  describe('isotope label HTML formatter', () => {
+    it('formats isotope masses and atom counts from a plain-text label', () => {
+      expect(formatIsotopeLabelHtml('12C2 1H6 16O')).toBe(
+        '<sup>12</sup>C<sub>2</sub><sup>1</sup>H<sub>6</sub><sup>16</sup>O',
+      );
+    });
+
+    it('preserves isotope order, handles two-letter symbols, and omits counts of one', () => {
+      expect(formatIsotopeLabelHtml('13C1 12C 37Cl2')).toBe(
+        '<sup>13</sup>C<sup>12</sup>C<sup>37</sup>Cl<sub>2</sub>',
+      );
+    });
+
+    it('accepts whitespace around and between isotope tokens', () => {
+      expect(formatIsotopeLabelHtml('  12C2\t1H6\n16O  ')).toBe(formatIsotopeLabelHtml('12C2 1H6 16O'));
+      expect(formatIsotopeLabelHtml('  ')).toBe('');
+    });
+
+    it.each(['C2H6O', '0C', '12C0', '12C2+', '<img src=x>', '12C2<script>'])(
+      'rejects invalid or HTML input: %s',
+      (label) => {
+        expect(() => formatIsotopeLabelHtml(label)).toThrow('Invalid isotope label token');
+      },
+    );
+
+    it.each(['9007199254740992C', '12C9007199254740992'])(
+      'rejects integers that cannot be represented exactly: %s',
+      (label) => {
+        expect(() => formatIsotopeLabelHtml(label)).toThrow('safe integers');
+      },
+    );
   });
 
   it('formats atom counts as subscript elements', () => {
