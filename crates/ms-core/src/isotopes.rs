@@ -16,6 +16,13 @@ pub struct IsotopeData {
     pub isotopic_abundance: Option<f64>,
 }
 
+impl IsotopeData {
+    /// Returns the symbol prefaced by the mass number, for example `40Ca`.
+    pub fn isotope_symbol(&self) -> String {
+        format!("{}{}", self.id.mass_number, self.symbol)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ElementData {
     pub symbol: &'static str,
@@ -55,6 +62,20 @@ pub fn most_abundant_isotope(symbol: &str) -> Option<IsotopeId> {
 mod tests {
     use super::*;
     use crate::test_support::C_12_MASS;
+
+    #[test]
+    fn formats_isotope_symbols_with_the_mass_number() {
+        for (atomic_number, mass_number, expected) in
+            [(6, 12, "12C"), (8, 16, "16O"), (20, 40, "40Ca")]
+        {
+            let isotope = isotope_data(IsotopeId {
+                atomic_number,
+                mass_number,
+            })
+            .unwrap();
+            assert_eq!(isotope.isotope_symbol(), expected);
+        }
+    }
 
     #[test]
     fn isotope_table_contains_common_isotopes() {

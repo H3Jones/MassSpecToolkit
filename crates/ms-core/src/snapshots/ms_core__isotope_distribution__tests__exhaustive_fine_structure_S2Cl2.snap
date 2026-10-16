@@ -1,17 +1,19 @@
 ---
 source: crates/ms-core/src/isotope_distribution.rs
-expression: fine
+expression: fine_distribution_snapshot(&fine)
 ---
 peaks:
   - nominal_mass: 134
     abundance: 0.5178878321651776
     mass: 133.88184771279998
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -19,15 +21,18 @@ peaks:
     abundance: 0.008178037143360002
     mass: 134.88123544820002
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -35,15 +40,18 @@ peaks:
     abundance: 0.04634221047904001
     mass: 135.8776435424
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -51,15 +59,18 @@ peaks:
     abundance: 0.3314044628216448
     mass: 135.8788976328
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -67,11 +78,13 @@ peaks:
     abundance: 0.000032285124000000006
     mass: 135.8806231836
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -79,15 +92,18 @@ peaks:
     abundance: 0.00036589807200000006
     mass: 136.87703127779997
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -95,19 +111,23 @@ peaks:
     abundance: 0.005233252913280001
     mass: 136.8782853682
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -115,11 +135,13 @@ peaks:
     abundance: 0.0010367112040000003
     mass: 137.873439372
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -127,19 +149,23 @@ peaks:
     abundance: 0.02965509984192001
     mass: 137.8746934624
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -147,11 +173,13 @@ peaks:
     abundance: 0.053017715013177605
     mass: 137.8759475528
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 2
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -159,15 +187,18 @@ peaks:
     abundance: 0.00010904049524480002
     mass: 137.87685724839997
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -175,15 +206,18 @@ peaks:
     abundance: 0.000020659752000000004
     mass: 137.8776731036
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -191,19 +225,23 @@ peaks:
     abundance: 0.00023414385600000005
     mass: 138.8740811978
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -211,15 +249,18 @@ peaks:
     abundance: 0.0008372099433600001
     mass: 138.8753352882
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -227,15 +268,18 @@ peaks:
     abundance: 0.0000008609366400000001
     mass: 138.8762449838
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -243,15 +287,18 @@ peaks:
     abundance: 0.0006634075920000002
     mass: 139.870489292
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -259,15 +306,18 @@ peaks:
     abundance: 0.004744189679040002
     mass: 139.87174338239998
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -275,15 +325,18 @@ peaks:
     abundance: 0.000004878640960000001
     mass: 139.87265307799998
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -291,19 +344,23 @@ peaks:
     abundance: 0.00006977670551040001
     mass: 139.8739071684
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -311,11 +368,13 @@ peaks:
     abundance: 0.0000033051240000000006
     mass: 139.87472302359998
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 2
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -323,15 +382,18 @@ peaks:
     abundance: 0.00003745807200000001
     mass: 140.8711311178
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -339,19 +401,23 @@ peaks:
     abundance: 0.0000005509267200000001
     mass: 140.8732949038
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -359,11 +425,13 @@ peaks:
     abundance: 0.00010613120400000004
     mass: 141.867539212
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 2
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -371,19 +439,23 @@ peaks:
     abundance: 0.0000031219180800000013
     mass: 141.869702998
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -391,15 +463,18 @@ peaks:
     abundance: 0.000011162799244800003
     mass: 141.8709570884
     composition:
-      - isotope:
+      - isotope_symbol: 32S
+        isotope:
           atomic_number: 16
           mass_number: 32
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -407,11 +482,13 @@ peaks:
     abundance: 0.0000000057395776000000015
     mass: 141.871866784
     composition:
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 2
@@ -419,15 +496,18 @@ peaks:
     abundance: 0.00000008813664000000002
     mass: 142.8703448238
     composition:
-      - isotope:
+      - isotope_symbol: 33S
+        isotope:
           atomic_number: 16
           mass_number: 33
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -435,15 +515,18 @@ peaks:
     abundance: 0.0000004994409600000002
     mass: 143.866752918
     composition:
-      - isotope:
+      - isotope_symbol: 34S
+        isotope:
           atomic_number: 16
           mass_number: 34
         count: 1
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2
@@ -451,15 +534,18 @@ peaks:
     abundance: 0.000000003672844800000001
     mass: 143.868916704
     composition:
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 2
-      - isotope:
+      - isotope_symbol: 35Cl
+        isotope:
           atomic_number: 17
           mass_number: 35
         count: 1
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 1
@@ -467,11 +553,13 @@ peaks:
     abundance: 0.0000000005875776000000001
     mass: 145.865966624
     composition:
-      - isotope:
+      - isotope_symbol: 36S
+        isotope:
           atomic_number: 16
           mass_number: 36
         count: 2
-      - isotope:
+      - isotope_symbol: 37Cl
+        isotope:
           atomic_number: 17
           mass_number: 37
         count: 2

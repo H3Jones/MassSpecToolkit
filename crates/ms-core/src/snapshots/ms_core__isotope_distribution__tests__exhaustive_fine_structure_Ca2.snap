@@ -1,13 +1,14 @@
 ---
 source: crates/ms-core/src/isotope_distribution.rs
-expression: fine
+expression: fine_distribution_snapshot(&fine)
 ---
 peaks:
   - nominal_mass: 80
     abundance: 0.9397557480999997
     mass: 79.925181726
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 2
@@ -15,11 +16,13 @@ peaks:
     abundance: 0.012544165399999996
     mass: 81.92120869300001
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 1
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 1
@@ -27,11 +30,13 @@ peaks:
     abundance: 0.0026174069999999995
     mass: 82.92135730300001
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 1
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 1
@@ -39,7 +44,8 @@ peaks:
     abundance: 0.00004186089999999999
     mass: 83.91723566
     composition:
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 2
@@ -47,11 +53,13 @@ peaks:
     abundance: 0.04044378519999999
     mass: 83.91807242300001
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 1
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 1
@@ -59,11 +67,13 @@ peaks:
     abundance: 0.000017468999999999995
     mass: 84.91738427
     composition:
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 1
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 1
@@ -71,11 +81,13 @@ peaks:
     abundance: 0.00026992839999999993
     mass: 85.91409939
     composition:
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 1
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 1
@@ -83,11 +95,13 @@ peaks:
     abundance: 0.00007755279999999998
     mass: 85.916279863
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 1
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 1
@@ -95,7 +109,8 @@ peaks:
     abundance: 0.0000018224999999999997
     mass: 85.91753288
     composition:
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 2
@@ -103,11 +118,13 @@ peaks:
     abundance: 0.00005632199999999999
     mass: 86.914248
     composition:
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 1
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 1
@@ -115,7 +132,8 @@ peaks:
     abundance: 0.00043513959999999985
     mass: 87.91096312
     composition:
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 2
@@ -123,11 +141,13 @@ peaks:
     abundance: 0.0000005175999999999999
     mass: 87.91230683
     composition:
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 1
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 1
@@ -135,11 +155,13 @@ peaks:
     abundance: 0.003625593399999999
     mass: 87.915113623
     composition:
-      - isotope:
+      - isotope_symbol: 40Ca
+        isotope:
           atomic_number: 20
           mass_number: 40
         count: 1
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 1
@@ -147,11 +169,13 @@ peaks:
     abundance: 0.00000010799999999999997
     mass: 88.91245544
     composition:
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 1
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 1
@@ -159,11 +183,13 @@ peaks:
     abundance: 0.0000016687999999999996
     mass: 89.90917056
     composition:
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 1
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 1
@@ -171,11 +197,13 @@ peaks:
     abundance: 0.000024197799999999994
     mass: 89.91114059
     composition:
-      - isotope:
+      - isotope_symbol: 42Ca
+        isotope:
           atomic_number: 20
           mass_number: 42
         count: 1
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 1
@@ -183,11 +211,13 @@ peaks:
     abundance: 0.000005048999999999999
     mass: 90.9112892
     composition:
-      - isotope:
+      - isotope_symbol: 43Ca
+        isotope:
           atomic_number: 20
           mass_number: 43
         count: 1
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 1
@@ -195,7 +225,8 @@ peaks:
     abundance: 0.0000000015999999999999996
     mass: 91.907378
     composition:
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 2
@@ -203,11 +234,13 @@ peaks:
     abundance: 0.00007801639999999998
     mass: 91.90800432
     composition:
-      - isotope:
+      - isotope_symbol: 44Ca
+        isotope:
           atomic_number: 20
           mass_number: 44
         count: 1
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 1
@@ -215,11 +248,13 @@ peaks:
     abundance: 0.00000014959999999999996
     mass: 93.90621175999999
     composition:
-      - isotope:
+      - isotope_symbol: 46Ca
+        isotope:
           atomic_number: 20
           mass_number: 46
         count: 1
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 1
@@ -227,7 +262,8 @@ peaks:
     abundance: 0.000003496899999999999
     mass: 95.90504552
     composition:
-      - isotope:
+      - isotope_symbol: 48Ca
+        isotope:
           atomic_number: 20
           mass_number: 48
         count: 2

@@ -615,6 +615,52 @@ mod tests {
         .unwrap()
     }
 
+    fn fine_distribution_snapshot(distribution: &FineIsotopeDistribution) -> impl Serialize + '_ {
+        #[derive(Serialize)]
+        struct CompositionSnapshot<'a> {
+            isotope_symbol: String,
+            #[serde(flatten)]
+            isotope_count: &'a IsotopeCount,
+        }
+
+        #[derive(Serialize)]
+        struct PeakSnapshot<'a> {
+            nominal_mass: u64,
+            abundance: f64,
+            mass: f64,
+            composition: Vec<CompositionSnapshot<'a>>,
+        }
+
+        #[derive(Serialize)]
+        struct DistributionSnapshot<'a> {
+            peaks: Vec<PeakSnapshot<'a>>,
+            retained_probability: f64,
+        }
+
+        DistributionSnapshot {
+            peaks: distribution
+                .peaks
+                .iter()
+                .map(|peak| PeakSnapshot {
+                    nominal_mass: peak.nominal_mass,
+                    abundance: peak.abundance,
+                    mass: peak.mass,
+                    composition: peak
+                        .composition
+                        .iter()
+                        .map(|entry| CompositionSnapshot {
+                            isotope_symbol: isotope_data(entry.isotope)
+                                .expect("snapshot compositions contain known isotopes")
+                                .isotope_symbol(),
+                            isotope_count: entry,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            retained_probability: distribution.retained_probability,
+        }
+    }
+
     fn multinomial_probability(counts_and_probabilities: &[(u32, f64)]) -> f64 {
         let factorial = |n: u32| (1..=n).map(f64::from).product::<f64>();
         let total_count = counts_and_probabilities
@@ -696,7 +742,10 @@ mod tests {
                     .windows(2)
                     .all(|pair| pair[0].mass <= pair[1].mass)
             );
-            insta::assert_yaml_snapshot!(format!("exhaustive_fine_structure_{input}"), fine);
+            insta::assert_yaml_snapshot!(
+                format!("exhaustive_fine_structure_{input}"),
+                fine_distribution_snapshot(&fine)
+            );
         }
     }
 
