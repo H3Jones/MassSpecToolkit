@@ -2,49 +2,49 @@
   "name": "ms-toolkit",
   "version": "0.1.0",
   "description": "Mass spectrometry calculator and plotting web components backed by Rust/WebAssembly",
-  "type": "module",
   "files": [
     "dist"
   ],
+  "type": "module",
   "sideEffects": [
-    "./dist/*.js"
+    "./dist/*.mjs"
   ],
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
     "./ion-calculator": {
-      "types": "./dist/elements/ion-calculator.d.ts",
-      "import": "./dist/ion-calculator.js"
+      "types": "./dist/ion-calculator.d.mts",
+      "import": "./dist/ion-calculator.mjs"
     },
     "./mass-split": {
-      "types": "./dist/elements/mass-split.d.ts",
-      "import": "./dist/mass-split.js"
+      "types": "./dist/mass-split.d.mts",
+      "import": "./dist/mass-split.mjs"
     },
     "./mass-spectrum": {
-      "types": "./dist/elements/mass-spectrum.d.ts",
-      "import": "./dist/mass-spectrum.js"
+      "types": "./dist/mass-spectrum.d.mts",
+      "import": "./dist/mass-spectrum.mjs"
     },
     "./table": {
-      "types": "./dist/elements/table.d.ts",
-      "import": "./dist/table.js"
+      "types": "./dist/table.d.mts",
+      "import": "./dist/table.mjs"
     },
     "./charts": {
-      "types": "./dist/charts/index.d.ts",
-      "import": "./dist/charts.js"
+      "types": "./dist/charts.d.mts",
+      "import": "./dist/charts.mjs"
     },
     "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core.js"
+      "types": "./dist/core.d.mts",
+      "import": "./dist/core.mjs"
     }
   },
   "scripts": {
     "wasm": "wasm-pack build ../../crates/ms-wasm --target web --out-dir ../../packages/ms-toolkit/src/generated/wasm",
     "dev": "vp dev playground --config vite.config.ts",
-    "build": "vp build && tsc -p tsconfig.build.json && node scripts/copy-wasm-types.mjs",
+    "build": "vp run wasm && vp pack --from-vite",
     "test": "vp test",
     "check": "vp check"
   },
