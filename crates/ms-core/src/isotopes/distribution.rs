@@ -1,7 +1,5 @@
-use crate::{
-    formula::{Atom, Formula},
-    isotopes::{ISOTOPES, IsotopeData, IsotopeId},
-};
+use super::{ISOTOPES, IsotopeData, IsotopeId};
+use crate::formula::{Atom, Formula};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -170,7 +168,7 @@ fn atom_isotopes(atom: Atom) -> Result<Vec<(&'static IsotopeData, f64)>, Isotope
 ///
 /// ```
 /// use ms_core::formula::Formula;
-/// use ms_core::isotope_distribution::theoretical_isotopologues;
+/// use ms_core::isotopes::theoretical_isotopologues;
 ///
 /// let formula = Formula::parse("H2O").unwrap();
 /// assert_eq!(theoretical_isotopologues(&formula).unwrap(), 9);
@@ -270,7 +268,7 @@ pub fn nominal_isotope_distribution(
 ///
 /// ```
 /// use ms_core::formula::Formula;
-/// use ms_core::isotope_distribution::{
+/// use ms_core::isotopes::{
 ///     fine_isotope_distribution, FineIsotopeDistributionOptions,
 /// };
 ///

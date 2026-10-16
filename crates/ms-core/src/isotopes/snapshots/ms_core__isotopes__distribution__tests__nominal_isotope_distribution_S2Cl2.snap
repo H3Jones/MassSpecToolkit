@@ -1,5 +1,5 @@
 ---
-source: crates/ms-core/src/isotope_distribution.rs
+source: crates/ms-core/src/isotopes/distribution.rs
 expression: distribution
 ---
 - nominal_mass: 134

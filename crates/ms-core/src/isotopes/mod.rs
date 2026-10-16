@@ -1,3 +1,13 @@
+//! Isotope data, lookup helpers, and molecular isotope distributions.
+
+mod distribution;
+
+pub use distribution::{
+    FineIsotopeDistribution, FineIsotopeDistributionOptions, FineIsotopePeak, IsotopeCount,
+    IsotopeDistributionError, IsotopePeak, fine_isotope_distribution, nominal_isotope_distribution,
+    theoretical_isotopologues,
+};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]

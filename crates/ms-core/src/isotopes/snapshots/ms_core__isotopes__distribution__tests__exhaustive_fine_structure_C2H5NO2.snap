@@ -1,5 +1,5 @@
 ---
-source: crates/ms-core/src/isotope_distribution.rs
+source: crates/ms-core/src/isotopes/distribution.rs
 expression: fine_distribution_snapshot(&fine)
 ---
 peaks:
