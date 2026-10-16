@@ -1,0 +1,68 @@
+name: Release ms-toolkit browser bundle
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ms-toolkit-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          working-directory: packages/ms-toolkit
+          node-version: "22"
+          cache: true
+          run-install: true
+
+      - name: Install Rust WebAssembly target and wasm-pack
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-pack --locked
+
+      - name: Determine and verify release tag
+        id: release-tag
+        working-directory: packages/ms-toolkit
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: |
+          expected_tag="ms-toolkit-v$(node -p "require('./package.json').version")"
+          if [ -n "$RELEASE_TAG" ] && [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "Release tag '$RELEASE_TAG' does not match '$expected_tag'." >&2
+            exit 1
+          fi
+          echo "tag=$expected_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build package and browser bundle
+        working-directory: packages/ms-toolkit
+        run: |
+          vp run build
+          vp run build:browser
+
+      - name: Archive browser bundle
+        run: tar -czf "$RUNNER_TEMP/ms-toolkit-browser.tar.gz" -C packages/ms-toolkit/dist/browser .
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          release_args=()
+          if [[ "${RELEASE_TAG#ms-toolkit-v}" == *-* ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/ms-toolkit-browser.tar.gz" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            "${release_args[@]}"

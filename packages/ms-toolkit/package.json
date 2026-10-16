@@ -45,6 +45,7 @@
     "wasm": "wasm-pack build ../../crates/ms-wasm --target web --out-dir ../../packages/ms-toolkit/src/generated/wasm",
     "dev": "vp dev playground --config vite.config.ts",
     "build": "vp run wasm && vp pack --from-vite",
+    "build:browser": "vp build --config vite.browser.config.ts",
     "test": "vp test",
     "check": "vp check"
   },
@@ -57,6 +58,9 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^5.9.0",
-    "vite-plus": "^1.2.0"
+    "vite-plus": "1.2.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.2.0"
   }
 }

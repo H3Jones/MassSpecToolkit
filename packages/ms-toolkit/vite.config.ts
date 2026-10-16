@@ -4,6 +4,9 @@ import { defineConfig } from "vite-plus";
 const src = (path: string) => fileURLToPath(new URL(`./src/${path}`, import.meta.url));
 
 export default defineConfig({
+  fmt: {
+    ignorePatterns: [],
+  },
   base: "./",
   server: {
     fs: {
