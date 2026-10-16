@@ -43,9 +43,10 @@ template.innerHTML = `
       border: 1px solid var(--ms-table-border);
       border-radius: 0.65rem;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
+    table { width: max-content; min-width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
     th, td { padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--ms-table-border); }
     th { background: var(--ms-table-header); font-size: 0.85em; font-weight: 600; white-space: nowrap; }
+    td { white-space: nowrap; }
     th button {
       display: inline-flex;
       align-items: center;
@@ -101,7 +102,8 @@ template.innerHTML = `
       font: inherit;
     }
     .pagination button:disabled { cursor: not-allowed; opacity: 0.45; }
-    .status { margin: 0; }
+    .status { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .range, .page-range { display: inline-block; text-align: right; }
     .error { margin: 0.5rem 0; color: #b91c1c; }
     @media (max-width: 32rem) {
       th, td { padding: 0.55rem 0.65rem; }
@@ -110,6 +112,7 @@ template.innerHTML = `
   </style>
   <div class="table-scroll" part="container">
     <table part="table">
+      <colgroup part="columns"></colgroup>
       <thead part="head"></thead>
       <tbody part="body"></tbody>
     </table>
@@ -143,6 +146,7 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
   #columns: MsTableColumn<TData>[] = [];
   #table?: Table<typeof features, TData>;
   #container!: HTMLElement;
+  #columnGroup!: HTMLTableColElement;
   #head!: HTMLTableSectionElement;
   #body!: HTMLTableSectionElement;
   #tableElement!: HTMLTableElement;
@@ -182,6 +186,7 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
       root.append(template.content.cloneNode(true));
       this.#container = root.querySelector<HTMLElement>("[part=container]")!;
       this.#tableElement = root.querySelector<HTMLTableElement>("[part=table]")!;
+      this.#columnGroup = root.querySelector<HTMLTableColElement>("[part=columns]")!;
       this.#head = root.querySelector<HTMLTableSectionElement>("[part=head]")!;
       this.#body = root.querySelector<HTMLTableSectionElement>("[part=body]")!;
       this.#pagination = root.querySelector<HTMLElement>("[part=pagination]")!;
@@ -264,6 +269,7 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
           initialState: { pagination: { pageIndex: 0, pageSize: this.#pageSize() } },
         });
       }
+      this.#columnWidths = this.#measureColumnWidths();
       this.#render();
     } catch (error) {
       this.#showError(error);
@@ -277,6 +283,14 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
       const label = this.getAttribute("aria-label");
       if (label === null) this.#tableElement.removeAttribute("aria-label");
       else this.#tableElement.setAttribute("aria-label", label);
+
+      this.#columnGroup.replaceChildren(
+        ...table.getAllLeafColumns().map((column) => {
+          const element = document.createElement("col");
+          element.style.width = `${this.#columnWidths.get(column.id) ?? 0}px`;
+          return element;
+        }),
+      );
 
       const headerRows = table.getHeaderGroups().map((group) => {
         const row = document.createElement("tr");
@@ -341,7 +355,22 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
       const rowCount = table.getRowCount();
       const firstRow = rowCount === 0 ? 0 : pagination.pageIndex * pagination.pageSize + 1;
       const lastRow = Math.min((pagination.pageIndex + 1) * pagination.pageSize, rowCount);
-      this.#status.textContent = `Showing ${firstRow}–${lastRow} of ${rowCount} rows · Page ${pagination.pageIndex + 1} of ${pageCount}`;
+      const range = document.createElement("span");
+      range.className = "range";
+      range.textContent = `${firstRow}–${lastRow}`;
+      const rangeDigits = Math.max(1, String(rowCount).length);
+      range.style.minWidth = `${rangeDigits * 2 + 1}ch`;
+      const pageRange = document.createElement("span");
+      pageRange.className = "page-range";
+      pageRange.textContent = `${pagination.pageIndex + 1} of ${pageCount}`;
+      const pageDigits = rangeDigits;
+      pageRange.style.minWidth = `${pageDigits * 2 + 4}ch`;
+      this.#status.replaceChildren(
+        document.createTextNode("Showing "),
+        range,
+        document.createTextNode(` of ${rowCount} rows · Page `),
+        pageRange,
+      );
       for (const option of this.#pageSizeSelect.querySelectorAll("option[data-custom]"))
         option.remove();
       this.#pageSizeSelect.value = String(pagination.pageSize);
@@ -367,9 +396,53 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
   #appendRendered(target: HTMLElement, value: unknown): void {
     if (value instanceof Node) {
       target.append(value);
-    } else if (value !== null && value !== undefined) {
-      target.textContent = String(value);
+    } else {
+      target.textContent = this.#renderedText(value);
     }
+  }
+
+  #renderedText(value: unknown): string {
+    if (value === null || value === undefined) return "";
+    if (value instanceof Node) return value.textContent ?? "";
+    return String(value);
+  }
+
+  #columnWidths = new Map<string, number>();
+
+  #measureColumnWidths(): Map<string, number> {
+    const table = this.#table;
+    if (!table) return new Map();
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) throw new Error("Unable to size table columns without a Canvas 2D context.");
+    context.font = getComputedStyle(this.#tableElement).font;
+
+    const widths = new Map<string, number>();
+    for (const column of table.getAllLeafColumns()) {
+      const header = table
+        .getHeaderGroups()
+        .flatMap((group) => group.headers)
+        .find((item) => item.column.id === column.id && !item.isPlaceholder);
+      const headerText = header
+        ? this.#renderedText(flexRender(column.columnDef.header, header.getContext()))
+        : column.id;
+      widths.set(column.id, context.measureText(headerText).width);
+    }
+
+    for (const row of table.getCoreRowModel().rows) {
+      for (const cell of row.getAllCells()) {
+        const width = widths.get(cell.column.id);
+        if (width === undefined) continue;
+        const value = cell.column.columnDef.cell
+          ? flexRender(cell.column.columnDef.cell, cell.getContext())
+          : cell.renderValue();
+        widths.set(
+          cell.column.id,
+          Math.max(width, context.measureText(this.#renderedText(value)).width),
+        );
+      }
+    }
+
+    return new Map([...widths].map(([id, width]) => [id, Math.ceil(width + 32)]));
   }
 
   #showError(error: unknown): void {

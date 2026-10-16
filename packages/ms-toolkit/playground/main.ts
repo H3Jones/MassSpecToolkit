@@ -1,7 +1,7 @@
 import "../src/index.ts";
 import type { MsMassSpectrum } from "../src/elements/mass-spectrum.ts";
 import type { MsTable, MsTableColumn } from "../src/elements/table.ts";
-import { formatIsotopeLabelHtml } from "../src/core/utils.ts";
+import { formatIsotopeLabelHtml, renormalizeIntensities } from "../src/core/utils.ts";
 // Preprocessed from crates/ms-core/src/isotopes/snapshots/ms_core__isotopes__distribution__tests__exhaustive_fine_structure_C2H6O.snap.
 import isotopePeaks from "./ethanol-isotope-spectrum.json";
 
@@ -30,12 +30,20 @@ isotopeSpectrum.data = isotopePeaks.map((peak) => ({
 
 const isotopeTable = document.querySelector<MsTable<IsotopePeak>>("#isotope-table")!;
 isotopeTable.columns = [
-  { accessorKey: "label", header: "Isotope assignment" },
+  {
+    accessorKey: "label",
+    header: "Isotope assignment",
+    cell: ({ getValue }) => {
+      const assignment = document.createElement("span");
+      assignment.innerHTML = formatIsotopeLabelHtml(String(getValue()));
+      return assignment;
+    },
+  },
   { accessorKey: "mz", header: "Mass (Da)", cell: ({ getValue }) => Number(getValue()).toFixed(6) },
   {
     accessorKey: "int",
-    header: "Relative intensity",
-    cell: ({ getValue }) => `${(Number(getValue()) * 100).toPrecision(4)}%`,
+    header: "Relative intensity (%)",
+    cell: ({ getValue }) => `${Number(getValue()).toPrecision(4)}%`,
   },
 ] satisfies MsTableColumn<IsotopePeak>[];
-isotopeTable.data = isotopePeaks;
+isotopeTable.data = renormalizeIntensities(isotopePeaks);

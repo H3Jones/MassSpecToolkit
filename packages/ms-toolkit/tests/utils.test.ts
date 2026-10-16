@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { AtomCount } from '../src/core/types.ts';
-import { formatAtomHtml, formatFormulaHtml, formatIsotopeLabelHtml } from '../src/core/utils.ts';
+import {
+  formatAtomHtml,
+  formatFormulaHtml,
+  formatIsotopeLabelHtml,
+  renormalizeIntensities,
+} from '../src/core/utils.ts';
 
 describe('formula HTML formatters', () => {
   it('formats isotope atom labels as superscript elements', () => {
@@ -14,6 +19,26 @@ describe('formula HTML formatters', () => {
     };
 
     expect(formatAtomHtml(atom)).toBe('<sup>13</sup>C');
+  });
+
+  describe('intensity normalization', () => {
+    it('normalizes to the base peak while preserving row fields and input', () => {
+      const peaks = [
+        { label: '12C2 1H6 16O', mz: 46.04, int: 0.5 },
+        { label: '12C 13C 1H6 16O', mz: 47.04, int: 0.25 },
+      ];
+
+      expect(renormalizeIntensities(peaks)).toEqual([
+        { label: '12C2 1H6 16O', mz: 46.04, int: 100 },
+        { label: '12C 13C 1H6 16O', mz: 47.04, int: 50 },
+      ]);
+      expect(peaks[0]?.int).toBe(0.5);
+    });
+
+    it('rejects empty data and data without a positive intensity', () => {
+      expect(() => renormalizeIntensities([])).toThrow('positive intensity');
+      expect(() => renormalizeIntensities([{ int: 0 }])).toThrow('positive intensity');
+    });
   });
 
   describe('isotope label HTML formatter', () => {

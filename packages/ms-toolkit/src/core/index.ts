@@ -3,7 +3,12 @@ import type { MsApi } from './wasm.ts';
 
 export type { AtomCount, FormulaResult, IonResult, MassSplitResult } from './types.ts';
 export type { MsApi } from './wasm.ts';
-export { formatAtomHtml, formatFormulaHtml, formatIsotopeLabelHtml } from './utils.ts';
+export {
+  formatAtomHtml,
+  formatFormulaHtml,
+  formatIsotopeLabelHtml,
+  renormalizeIntensities,
+} from './utils.ts';
 
 let client: Remote<MsApi> | undefined;
 
