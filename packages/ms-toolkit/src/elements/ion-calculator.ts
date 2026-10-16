@@ -1,6 +1,6 @@
-import { formatAtomHtml, formatFormulaHtml, getClient, type IonResult } from '../core/index.ts';
+import { formatAtomHtml, formatFormulaHtml, getClient, type IonResult } from "../core/index.ts";
 
-const template = document.createElement('template');
+const template = document.createElement("template");
 template.innerHTML = `
   <style>
     :host { display: block; font: inherit; }
@@ -29,7 +29,7 @@ template.innerHTML = `
  * Dispatches `ms-result` (detail: IonResult) or `ms-error` (detail: Error).
  */
 export class MsIonCalculator extends HTMLElement {
-  static observedAttributes = ['formula', 'charge'];
+  static observedAttributes = ["formula", "charge"];
 
   #form!: HTMLFormElement;
   #output!: HTMLElement;
@@ -37,17 +37,17 @@ export class MsIonCalculator extends HTMLElement {
 
   connectedCallback(): void {
     if (!this.shadowRoot) {
-      const root = this.attachShadow({ mode: 'open' });
+      const root = this.attachShadow({ mode: "open" });
       root.append(template.content.cloneNode(true));
-      this.#form = root.querySelector('form')!;
-      this.#output = root.querySelector('[part=result]')!;
-      this.#form.addEventListener('submit', (event) => {
+      this.#form = root.querySelector("form")!;
+      this.#output = root.querySelector("[part=result]")!;
+      this.#form.addEventListener("submit", (event) => {
         event.preventDefault();
         void this.calculate();
       });
     }
     this.#syncInputs();
-    if (this.hasAttribute('formula')) void this.calculate();
+    if (this.hasAttribute("formula")) void this.calculate();
   }
 
   attributeChangedCallback(): void {
@@ -57,13 +57,16 @@ export class MsIonCalculator extends HTMLElement {
   }
 
   #inputs(): { formula: HTMLInputElement; charge: HTMLInputElement } {
-    return this.#form.elements as unknown as { formula: HTMLInputElement; charge: HTMLInputElement };
+    return this.#form.elements as unknown as {
+      formula: HTMLInputElement;
+      charge: HTMLInputElement;
+    };
   }
 
   #syncInputs(): void {
     const { formula, charge } = this.#inputs();
-    const attrFormula = this.getAttribute('formula');
-    const attrCharge = this.getAttribute('charge');
+    const attrFormula = this.getAttribute("formula");
+    const attrCharge = this.getAttribute("charge");
     if (attrFormula !== null) formula.value = attrFormula;
     if (attrCharge !== null) charge.value = attrCharge;
   }
@@ -75,40 +78,44 @@ export class MsIonCalculator extends HTMLElement {
       const result = await getClient().evaluateIon(formula.value, charge.valueAsNumber);
       if (run !== this.#run) return undefined;
       this.#render(result);
-      this.dispatchEvent(new CustomEvent('ms-result', { detail: result, bubbles: true }));
+      this.dispatchEvent(new CustomEvent("ms-result", { detail: result, bubbles: true }));
       return result;
     } catch (error) {
       if (run !== this.#run) return undefined;
       const err = error instanceof Error ? error : new Error(String(error));
       this.#output.replaceChildren(
-        Object.assign(document.createElement('p'), { className: 'error', textContent: err.message }),
+        Object.assign(document.createElement("p"), {
+          className: "error",
+          textContent: err.message,
+        }),
       );
-      this.dispatchEvent(new CustomEvent('ms-error', { detail: err, bubbles: true }));
+      this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
     }
   }
 
   #render(result: IonResult): void {
-    const summary = document.createElement('dl');
-    summary.className = 'summary';
-    const formula = document.createElement('span');
+    const summary = document.createElement("dl");
+    summary.className = "summary";
+    const formula = document.createElement("span");
     formula.innerHTML = formatFormulaHtml(result.atom_counts);
     const addSummaryRow = (label: string, value: Node | string): void => {
-      const term = document.createElement('dt');
+      const term = document.createElement("dt");
       term.textContent = label;
-      const description = document.createElement('dd');
-      if (typeof value === 'string') description.textContent = value;
+      const description = document.createElement("dd");
+      if (typeof value === "string") description.textContent = value;
       else description.append(value);
       summary.append(term, description);
     };
 
-    addSummaryRow('Parsed Formula:', formula);
-    addSummaryRow('Mass:', result.mass.toFixed(6));
-    addSummaryRow('m/z:', result.mass_to_charge?.toFixed(6) ?? 'N/A');
-    addSummaryRow('DBE:', String(result.dbe));
+    addSummaryRow("Parsed Formula:", formula);
+    addSummaryRow("Mass:", result.mass.toFixed(6));
+    addSummaryRow("m/z:", result.mass_to_charge?.toFixed(6) ?? "N/A");
+    addSummaryRow("DBE:", String(result.dbe));
 
-    const table = document.createElement('table');
-    table.innerHTML = '<thead><tr><th>Atom</th><th>Count</th><th>RAM</th><th>Total Mass</th></tr></thead>';
+    const table = document.createElement("table");
+    table.innerHTML =
+      "<thead><tr><th>Atom</th><th>Count</th><th>RAM</th><th>Total Mass</th></tr></thead>";
     const body = table.createTBody();
     for (const atom of result.atom_counts) {
       const row = body.insertRow();
@@ -121,6 +128,6 @@ export class MsIonCalculator extends HTMLElement {
   }
 }
 
-if (!customElements.get('ms-ion-calculator')) {
-  customElements.define('ms-ion-calculator', MsIonCalculator);
+if (!customElements.get("ms-ion-calculator")) {
+  customElements.define("ms-ion-calculator", MsIonCalculator);
 }

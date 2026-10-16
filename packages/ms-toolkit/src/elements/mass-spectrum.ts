@@ -1,13 +1,13 @@
-import { mountChart } from '@tanstack/charts/dom';
-import type { ChartHost } from '@tanstack/charts';
+import { mountChart } from "@tanstack/charts/dom";
+import type { ChartHost } from "@tanstack/charts";
 import {
   createMassSpectrumChart,
   copySpectrumPeaks,
   type RelativeSpectrumPeak,
   type SpectrumPeak,
-} from '../charts/index.ts';
+} from "../charts/index.ts";
 
-const template = document.createElement('template');
+const template = document.createElement("template");
 template.innerHTML = `
   <style>
     :host { display: block; min-width: 0; font: inherit; }
@@ -28,7 +28,15 @@ template.innerHTML = `
  * Rendering errors dispatch `ms-error` (detail: Error).
  */
 export class MsMassSpectrum extends HTMLElement {
-  static observedAttributes = ['chart-title', 'height', 'color', 'labels', 'mz-min', 'mz-max', 'x-label'];
+  static observedAttributes = [
+    "chart-title",
+    "height",
+    "color",
+    "labels",
+    "mz-min",
+    "mz-max",
+    "x-label",
+  ];
 
   #data: readonly SpectrumPeak[] = [];
   #host?: ChartHost<RelativeSpectrumPeak, number, number>;
@@ -49,20 +57,20 @@ export class MsMassSpectrum extends HTMLElement {
 
   connectedCallback(): void {
     if (!this.shadowRoot) {
-      const root = this.attachShadow({ mode: 'open' });
+      const root = this.attachShadow({ mode: "open" });
       root.append(template.content.cloneNode(true));
-      this.#container = root.querySelector<HTMLElement>('[part=chart]')!;
-      this.#title = root.querySelector<HTMLElement>('[part=title]')!;
-      this.#titleSlot = root.querySelector<HTMLSlotElement>('slot[name=title]')!;
-      this.#titleSlot.addEventListener('slotchange', () => {
+      this.#container = root.querySelector<HTMLElement>("[part=chart]")!;
+      this.#title = root.querySelector<HTMLElement>("[part=title]")!;
+      this.#titleSlot = root.querySelector<HTMLSlotElement>("slot[name=title]")!;
+      this.#titleSlot.addEventListener("slotchange", () => {
         if (this.isConnected) this.#render();
       });
-      this.#status = root.querySelector<HTMLElement>('[part=status]')!;
+      this.#status = root.querySelector<HTMLElement>("[part=status]")!;
     }
     // Preserve data assigned before the custom element was registered.
-    if (Object.prototype.hasOwnProperty.call(this, 'data')) {
+    if (Object.prototype.hasOwnProperty.call(this, "data")) {
       const peaks = this.data;
-      Reflect.deleteProperty(this, 'data');
+      Reflect.deleteProperty(this, "data");
       this.data = peaks;
       return;
     }
@@ -79,44 +87,47 @@ export class MsMassSpectrum extends HTMLElement {
   }
 
   #render(): void {
-    const fallbackTitle = this.getAttribute('chart-title') ?? '';
+    const fallbackTitle = this.getAttribute("chart-title") ?? "";
     if (this.#titleSlot.textContent !== fallbackTitle) this.#titleSlot.textContent = fallbackTitle;
     const titleNodes = this.#titleSlot.assignedNodes();
     const title = titleNodes.length
-      ? titleNodes.map((node) => node.textContent ?? '').join('').trim()
+      ? titleNodes
+          .map((node) => node.textContent ?? "")
+          .join("")
+          .trim()
       : fallbackTitle;
     this.#title.hidden = !title;
 
     try {
-      const heightAttribute = this.getAttribute('height');
+      const heightAttribute = this.getAttribute("height");
       const height = heightAttribute === null ? 360 : Number(heightAttribute);
       if (!Number.isFinite(height) || height <= 0) {
-        throw new RangeError('Spectrum height must be a finite, positive number.');
+        throw new RangeError("Spectrum height must be a finite, positive number.");
       }
-      const labelsAttribute = this.getAttribute('labels');
-      if (labelsAttribute !== null && !['', 'true', 'false'].includes(labelsAttribute)) {
+      const labelsAttribute = this.getAttribute("labels");
+      if (labelsAttribute !== null && !["", "true", "false"].includes(labelsAttribute)) {
         throw new TypeError('Spectrum labels must be "true" or "false".');
       }
-      const minimumMz = this.getAttribute('mz-min');
-      const maximumMz = this.getAttribute('mz-max');
+      const minimumMz = this.getAttribute("mz-min");
+      const maximumMz = this.getAttribute("mz-max");
       let mzDomain: readonly [number, number] | undefined;
       if (minimumMz !== null || maximumMz !== null) {
         if (minimumMz === null || maximumMz === null || !minimumMz.trim() || !maximumMz.trim()) {
-          throw new RangeError('Set both mz-min and mz-max to specify the spectrum m/z range.');
+          throw new RangeError("Set both mz-min and mz-max to specify the spectrum m/z range.");
         }
         mzDomain = [Number(minimumMz), Number(maximumMz)];
       }
       const definition = createMassSpectrumChart(this.#data, {
-        color: this.getAttribute('color') ?? undefined,
-        labels: labelsAttribute !== 'false',
+        color: this.getAttribute("color") ?? undefined,
+        labels: labelsAttribute !== "false",
         mzDomain,
-        xLabel: this.getAttribute('x-label') ?? undefined,
+        xLabel: this.getAttribute("x-label") ?? undefined,
       });
       if (this.#data.length === 0) {
         this.#host?.destroy();
         this.#host = undefined;
-        this.#status.className = 'status';
-        this.#status.textContent = 'No peaks to display.';
+        this.#status.className = "status";
+        this.#status.textContent = "No peaks to display.";
         this.#status.hidden = false;
         return;
       }
@@ -124,7 +135,7 @@ export class MsMassSpectrum extends HTMLElement {
         definition,
         height,
         initialWidth: 640,
-        ariaLabel: title || 'Mass spectrum',
+        ariaLabel: title || "Mass spectrum",
         ariaDescription: `${this.#data.length} peaks. Intensities normalized to the base peak at 100%.`,
       };
       if (this.#host) {
@@ -138,20 +149,20 @@ export class MsMassSpectrum extends HTMLElement {
       this.#host = undefined;
       this.#container.replaceChildren();
       const err = error instanceof Error ? error : new Error(String(error));
-      this.#status.className = 'status error';
+      this.#status.className = "status error";
       this.#status.textContent = err.message;
       this.#status.hidden = false;
-      this.dispatchEvent(new CustomEvent('ms-error', { detail: err, bubbles: true }));
+      this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
     }
   }
 }
 
-if (!customElements.get('ms-mass-spectrum')) {
-  customElements.define('ms-mass-spectrum', MsMassSpectrum);
+if (!customElements.get("ms-mass-spectrum")) {
+  customElements.define("ms-mass-spectrum", MsMassSpectrum);
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    'ms-mass-spectrum': MsMassSpectrum;
+    "ms-mass-spectrum": MsMassSpectrum;
   }
 }

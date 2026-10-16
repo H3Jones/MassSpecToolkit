@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ms-toolkit playground</title>
     <style>
-      body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 42rem; padding: 0 1rem; }
+      body {
+        font:
+          16px system-ui,
+          sans-serif;
+        margin: 2rem auto;
+        max-width: 42rem;
+        padding: 0 1rem;
+      }
     </style>
   </head>
   <body>
@@ -14,7 +21,11 @@
     <h1>&lt;ms-mass-split&gt;</h1>
     <ms-mass-split formula-a="C14H23S" formula-b="C17H19"></ms-mass-split>
     <h1>&lt;ms-mass-spectrum&gt;</h1>
-    <ms-mass-spectrum id="centroid-spectrum" chart-title="Example centroid mass spectrum" color="#2563eb"></ms-mass-spectrum>
+    <ms-mass-spectrum
+      id="centroid-spectrum"
+      chart-title="Example centroid mass spectrum"
+      color="#2563eb"
+    ></ms-mass-spectrum>
     <h2>Ethanol isotope distribution</h2>
     <p>63 peaks from the exhaustive fine-structure distribution.</p>
     <ms-mass-spectrum

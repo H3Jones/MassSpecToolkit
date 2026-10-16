@@ -5,4 +5,4 @@ export {
   type MassSpectrumOptions,
   type RelativeSpectrumPeak,
   type SpectrumPeak,
-} from './mass-spectrum.ts';
+} from "./mass-spectrum.ts";

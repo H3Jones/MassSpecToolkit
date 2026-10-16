@@ -3,4 +3,4 @@ export type {
   FormulaResult,
   IonResult,
   MassSplitResult,
-} from '../generated/wasm/ms_wasm.js';
+} from "../generated/wasm/ms_wasm.js";

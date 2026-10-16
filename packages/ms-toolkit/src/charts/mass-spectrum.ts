@@ -1,10 +1,10 @@
-import { defineChart } from '@tanstack/charts/scene';
-import { frame } from '@tanstack/charts/frame';
-import { link } from '@tanstack/charts/link';
-import { createMark } from '@tanstack/charts';
-import { text } from '@tanstack/charts/text';
-import { scaleLinear } from '@tanstack/charts/scales/linear';
-import { spectrumTooltip } from './spectrum-tooltip.ts';
+import { defineChart } from "@tanstack/charts/scene";
+import { frame } from "@tanstack/charts/frame";
+import { link } from "@tanstack/charts/link";
+import { createMark } from "@tanstack/charts";
+import { text } from "@tanstack/charts/text";
+import { scaleLinear } from "@tanstack/charts/scales/linear";
+import { spectrumTooltip } from "./spectrum-tooltip.ts";
 
 /** A centroid peak. `int` is the original, non-negative intensity. */
 export interface SpectrumPeak {
@@ -29,7 +29,7 @@ export interface MassSpectrumOptions {
 
 /** Validates and copies peaks without changing their order or combining equal m/z values. */
 export function copySpectrumPeaks(peaks: readonly SpectrumPeak[]): SpectrumPeak[] {
-  if (!Array.isArray(peaks)) throw new TypeError('Spectrum data must be an array of peaks.');
+  if (!Array.isArray(peaks)) throw new TypeError("Spectrum data must be an array of peaks.");
 
   for (const [index, peak] of peaks.entries()) {
     if (
@@ -42,8 +42,8 @@ export function copySpectrumPeaks(peaks: readonly SpectrumPeak[]): SpectrumPeak[
       throw new TypeError(`Peak ${index} must have finite, non-negative mz and int values.`);
     }
     if (
-      (peak.label !== undefined && typeof peak.label !== 'string') ||
-      (peak.labelHtml !== undefined && typeof peak.labelHtml !== 'string')
+      (peak.label !== undefined && typeof peak.label !== "string") ||
+      (peak.labelHtml !== undefined && typeof peak.labelHtml !== "string")
     ) {
       throw new TypeError(`Peak ${index} label and labelHtml must be strings.`);
     }
@@ -73,8 +73,8 @@ export function createMassSpectrumChart(
   options: MassSpectrumOptions = {},
 ) {
   const data = normalizeSpectrumPeaks(peaks);
-  const color = options.color ?? 'currentColor';
-  const xLabel = options.xLabel ?? 'm/z';
+  const color = options.color ?? "currentColor";
+  const xLabel = options.xLabel ?? "m/z";
   let maximumMz = 0;
   for (const peak of data) maximumMz = Math.max(maximumMz, peak.mz);
   const upperMz = maximumMz === 0 ? 1 : maximumMz + maximumMz * 0.05;
@@ -86,12 +86,12 @@ export function createMassSpectrumChart(
     mzDomain[0] < 0 ||
     mzDomain[1] <= mzDomain[0]
   ) {
-    throw new RangeError('Spectrum m/z range must have finite, increasing, non-negative bounds.');
+    throw new RangeError("Spectrum m/z range must have finite, increasing, non-negative bounds.");
   }
   const peakLabels = text(data, {
-    id: 'peak-labels',
-    x: 'mz',
-    y: 'relativeIntensity',
+    id: "peak-labels",
+    x: "mz",
+    y: "relativeIntensity",
     text: (peak) => Number(peak.mz.toFixed(4)).toString(),
     fill: color,
     fontSize: 12,
@@ -100,16 +100,16 @@ export function createMassSpectrumChart(
 
   return defineChart({
     marks: [
-      frame({ stroke: 'currentColor', strokeOpacity: 0.4 }),
+      frame({ stroke: "currentColor", strokeOpacity: 0.4 }),
       link(data, {
-        id: 'peaks',
-        x1: 'mz',
-        x2: 'mz',
+        id: "peaks",
+        x1: "mz",
+        x2: "mz",
         y1: () => 0,
-        y2: 'relativeIntensity',
+        y2: "relativeIntensity",
         stroke: color,
         strokeWidth: 1.5,
-        lineCap: 'butt',
+        lineCap: "butt",
       }),
       ...(options.labels === false
         ? []
@@ -132,26 +132,26 @@ export function createMassSpectrumChart(
         scale: scaleLinear().domain([0, 110]),
         grid: true,
         axis: {
-          label: { text: 'Relative intensity (%)', fontSize: 16 },
+          label: { text: "Relative intensity (%)", fontSize: 16 },
           ticks: { values: [0, 20, 40, 60, 80, 100] },
         },
       },
     },
     tooltip: {
       use: spectrumTooltip,
-      anchor: { x: 'value', y: 'value' },
-      placement: 'top',
+      anchor: { x: "value", y: "value" },
+      placement: "top",
       offset: 16,
       items: [
-        { field: 'mz', label: xLabel, text: (point) => point.datum.mz.toString() },
+        { field: "mz", label: xLabel, text: (point) => point.datum.mz.toString() },
         {
-          field: 'relativeIntensity',
-          label: 'Relative intensity',
+          field: "relativeIntensity",
+          label: "Relative intensity",
           text: (point) => {
             const intensity = point.datum.relativeIntensity;
             return `${intensity > 0 && intensity < 0.01 ? intensity.toExponential(2) : intensity.toFixed(2)}%`;
           },
-        }
+        },
       ],
     },
   });

@@ -1,5 +1,5 @@
-import init, { evaluate_ion, mass_split, parse_formula } from '../generated/wasm/ms_wasm.js';
-import type { FormulaResult, IonResult, MassSplitResult } from './types.ts';
+import init, { evaluate_ion, mass_split, parse_formula } from "../generated/wasm/ms_wasm.js";
+import type { FormulaResult, IonResult, MassSplitResult } from "./types.ts";
 
 let ready: Promise<unknown> | undefined;
 
