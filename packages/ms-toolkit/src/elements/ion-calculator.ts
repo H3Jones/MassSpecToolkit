@@ -9,6 +9,9 @@ template.innerHTML = `
     input { padding: 0.4rem; font: inherit; }
     button { padding: 0.45rem 1rem; font: inherit; }
     .error { color: #b91c1c; }
+    .summary { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 0.5rem; margin: 1rem 0 0; }
+    .summary dt { font-weight: 600; }
+    .summary dd { margin: 0; }
     table { border-collapse: collapse; margin-top: 1rem; }
     th, td { padding: 0.25rem 0.75rem; text-align: right; border-bottom: 1px solid #ddd; }
     th:first-child, td:first-child { text-align: left; }
@@ -86,15 +89,23 @@ export class MsIonCalculator extends HTMLElement {
   }
 
   #render(result: IonResult): void {
-    const summary = document.createElement('p');
+    const summary = document.createElement('dl');
+    summary.className = 'summary';
     const formula = document.createElement('span');
     formula.innerHTML = formatFormulaHtml(result.atom_counts);
-    const massToCharge =
-      result.mass_to_charge === null ? '' : `, m/z ${result.mass_to_charge.toFixed(6)}`;
-    summary.append(
-      formula,
-      document.createTextNode(`: mass ${result.mass.toFixed(6)}${massToCharge}`),
-    );
+    const addSummaryRow = (label: string, value: Node | string): void => {
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const description = document.createElement('dd');
+      if (typeof value === 'string') description.textContent = value;
+      else description.append(value);
+      summary.append(term, description);
+    };
+
+    addSummaryRow('Parsed Formula:', formula);
+    addSummaryRow('Mass:', result.mass.toFixed(6));
+    addSummaryRow('m/z:', result.mass_to_charge?.toFixed(6) ?? 'N/A');
+    addSummaryRow('DBE:', String(result.dbe));
 
     const table = document.createElement('table');
     table.innerHTML = '<thead><tr><th>Atom</th><th>Count</th><th>RAM</th><th>Total Mass</th></tr></thead>';
