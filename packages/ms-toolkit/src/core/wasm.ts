@@ -1,4 +1,4 @@
-import init, { evaluate_ion, mass_split, parse_formula } from '../../../../crates/ms-wasm/pkg/ms_wasm.js';
+import init, { evaluate_ion, mass_split, parse_formula } from '../generated/wasm/ms_wasm.js';
 import type { FormulaResult, IonResult, MassSplitResult } from './types.ts';
 
 let ready: Promise<unknown> | undefined;
@@ -17,7 +17,7 @@ export const api = {
   async parseFormula(input: string): Promise<FormulaResult> {
     await ensureInit();
     try {
-      return parse_formula(input) as FormulaResult;
+      return parse_formula(input);
     } catch (error) {
       throw toError(error);
     }
@@ -26,7 +26,7 @@ export const api = {
   async evaluateIon(input: string, charge: number): Promise<IonResult> {
     await ensureInit();
     try {
-      return evaluate_ion(input, charge) as IonResult;
+      return evaluate_ion(input, charge);
     } catch (error) {
       throw toError(error);
     }
@@ -35,7 +35,7 @@ export const api = {
   async massSplit(formulaA: string, formulaB: string): Promise<MassSplitResult> {
     await ensureInit();
     try {
-      return mass_split(formulaA, formulaB) as MassSplitResult;
+      return mass_split(formulaA, formulaB);
     } catch (error) {
       throw toError(error);
     }

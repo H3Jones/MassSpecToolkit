@@ -42,9 +42,9 @@
     }
   },
   "scripts": {
-    "wasm": "wasm-pack build ../../crates/ms-wasm --target web",
+    "wasm": "wasm-pack build ../../crates/ms-wasm --target web --out-dir ../../packages/ms-toolkit/src/generated/wasm",
     "dev": "vp dev playground --config vite.config.ts",
-    "build": "vp build && tsc -p tsconfig.build.json",
+    "build": "vp build && tsc -p tsconfig.build.json && node scripts/copy-wasm-types.mjs",
     "test": "vp test",
     "check": "vp check"
   },
