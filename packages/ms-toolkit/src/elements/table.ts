@@ -1,0 +1,393 @@
+import {
+  constructTable,
+  createPaginatedRowModel,
+  createSortedRowModel,
+  rowPaginationFeature,
+  rowSortingFeature,
+  tableFeatures,
+  type ColumnDef,
+  type Table,
+} from "@tanstack/table-core";
+import { flexRender } from "@tanstack/table-core/flex-render";
+import { storeReactivityBindings } from "@tanstack/table-core/store-reactivity-bindings";
+
+export type MsTableRow = Record<string, unknown>;
+
+const features = tableFeatures({
+  coreReactivityFeature: storeReactivityBindings(),
+  rowSortingFeature,
+  sortedRowModel: createSortedRowModel(),
+  rowPaginationFeature,
+  paginatedRowModel: createPaginatedRowModel(),
+});
+
+export type MsTableColumn<TData extends MsTableRow = MsTableRow> = ColumnDef<
+  typeof features,
+  TData
+>;
+
+const template = document.createElement("template");
+template.innerHTML = `
+  <style>
+    :host {
+      display: block;
+      min-width: 0;
+      color: inherit;
+      font: inherit;
+      --ms-table-border: color-mix(in srgb, currentColor 14%, transparent);
+      --ms-table-header: color-mix(in srgb, currentColor 5%, transparent);
+    }
+    [hidden] { display: none !important; }
+    .table-scroll {
+      overflow-x: auto;
+      border: 1px solid var(--ms-table-border);
+      border-radius: 0.65rem;
+    }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--ms-table-border); }
+    th { background: var(--ms-table-header); font-size: 0.85em; font-weight: 600; white-space: nowrap; }
+    th button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      text-align: inherit;
+      cursor: pointer;
+    }
+    th button:focus-visible, button:focus-visible, select:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    .sort-indicator {
+      display: inline-grid;
+      width: 0.7rem;
+      height: 0.7rem;
+      place-items: center;
+      opacity: 0.35;
+    }
+    .sort-indicator::before {
+      width: 0;
+      height: 0;
+      border-right: 0.25rem solid transparent;
+      border-bottom: 0.35rem solid currentColor;
+      border-left: 0.25rem solid transparent;
+      content: "";
+    }
+    .sort-indicator[data-direction="desc"]::before { transform: rotate(180deg); }
+    .sort-indicator[data-direction="asc"], .sort-indicator[data-direction="desc"] { opacity: 1; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--ms-table-header); }
+    .empty { padding: 1.5rem; color: color-mix(in srgb, currentColor 65%, transparent); text-align: center; }
+    .pagination {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.65rem;
+      margin-top: 0.75rem;
+      font-size: 0.875em;
+    }
+    .pagination label { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .pagination button, .pagination select {
+      padding: 0.35rem 0.55rem;
+      border: 1px solid var(--ms-table-border);
+      border-radius: 0.4rem;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+    }
+    .pagination button:disabled { cursor: not-allowed; opacity: 0.45; }
+    .status { margin: 0; }
+    .error { margin: 0.5rem 0; color: #b91c1c; }
+    @media (max-width: 32rem) {
+      th, td { padding: 0.55rem 0.65rem; }
+      .pagination { justify-content: flex-start; }
+    }
+  </style>
+  <div class="table-scroll" part="container">
+    <table part="table">
+      <thead part="head"></thead>
+      <tbody part="body"></tbody>
+    </table>
+  </div>
+  <div class="pagination" part="pagination">
+    <label>Rows per page
+      <select part="page-size" aria-label="Rows per page">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </label>
+    <p class="status" part="status" aria-live="polite"></p>
+    <button type="button" part="previous" aria-label="Previous page">Previous</button>
+    <button type="button" part="next" aria-label="Next page">Next</button>
+  </div>
+  <p class="error" part="error" role="alert" hidden></p>
+`;
+
+/**
+ * `<ms-table page-size="10" aria-label="Isotope peaks"></ms-table>`
+ * Set `columns` to TanStack Table column definitions and `data` to row objects.
+ * Column headers are sortable; the footer controls client-side pagination.
+ * Rendering errors dispatch `ms-error` (detail: Error).
+ */
+export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement {
+  static observedAttributes = ["page-size", "aria-label"];
+
+  #data: TData[] = [];
+  #columns: MsTableColumn<TData>[] = [];
+  #table?: Table<typeof features, TData>;
+  #container!: HTMLElement;
+  #head!: HTMLTableSectionElement;
+  #body!: HTMLTableSectionElement;
+  #tableElement!: HTMLTableElement;
+  #pagination!: HTMLElement;
+  #pageSizeSelect!: HTMLSelectElement;
+  #status!: HTMLElement;
+  #error!: HTMLElement;
+  #previousButton!: HTMLButtonElement;
+  #nextButton!: HTMLButtonElement;
+
+  get data(): readonly TData[] {
+    return [...this.#data];
+  }
+
+  set data(rows: readonly TData[]) {
+    if (!Array.isArray(rows)) throw new TypeError("Table data must be an array of row objects.");
+    if (rows.some((row) => row === null || typeof row !== "object" || Array.isArray(row))) {
+      throw new TypeError("Each table row must be an object.");
+    }
+    this.#data = [...rows];
+    this.#updateTable();
+  }
+
+  get columns(): readonly MsTableColumn<TData>[] {
+    return [...this.#columns];
+  }
+
+  set columns(columns: readonly MsTableColumn<TData>[]) {
+    if (!Array.isArray(columns)) throw new TypeError("Table columns must be an array.");
+    this.#columns = [...columns];
+    this.#updateTable();
+  }
+
+  connectedCallback(): void {
+    if (!this.shadowRoot) {
+      const root = this.attachShadow({ mode: "open" });
+      root.append(template.content.cloneNode(true));
+      this.#container = root.querySelector<HTMLElement>("[part=container]")!;
+      this.#tableElement = root.querySelector<HTMLTableElement>("[part=table]")!;
+      this.#head = root.querySelector<HTMLTableSectionElement>("[part=head]")!;
+      this.#body = root.querySelector<HTMLTableSectionElement>("[part=body]")!;
+      this.#pagination = root.querySelector<HTMLElement>("[part=pagination]")!;
+      this.#pageSizeSelect = root.querySelector<HTMLSelectElement>("[part=page-size]")!;
+      this.#status = root.querySelector<HTMLElement>("[part=status]")!;
+      this.#error = root.querySelector<HTMLElement>("[part=error]")!;
+      this.#previousButton = root.querySelector<HTMLButtonElement>("[part=previous]")!;
+      this.#nextButton = root.querySelector<HTMLButtonElement>("[part=next]")!;
+      this.#pageSizeSelect.addEventListener("change", () => {
+        this.#table?.setPageSize(Number(this.#pageSizeSelect.value));
+        this.#render();
+      });
+      this.#previousButton.addEventListener("click", () => {
+        this.#table?.previousPage();
+        this.#render();
+      });
+      this.#nextButton.addEventListener("click", () => {
+        this.#table?.nextPage();
+        this.#render();
+      });
+    }
+
+    const assignedData = Object.prototype.hasOwnProperty.call(this, "data") ? this.data : undefined;
+    const assignedColumns = Object.prototype.hasOwnProperty.call(this, "columns")
+      ? this.columns
+      : undefined;
+    if (assignedData !== undefined) {
+      Reflect.deleteProperty(this, "data");
+      this.data = assignedData;
+    }
+    if (assignedColumns !== undefined) {
+      Reflect.deleteProperty(this, "columns");
+      this.columns = assignedColumns;
+    }
+    this.#updateTable();
+  }
+
+  attributeChangedCallback(name: string): void {
+    if (!this.isConnected || !this.shadowRoot) return;
+    if (name === "page-size") {
+      try {
+        if (this.#table) {
+          this.#table.setPageSize(this.#pageSize());
+          this.#render();
+        } else {
+          this.#updateTable();
+        }
+      } catch (error) {
+        this.#showError(error);
+      }
+      return;
+    }
+    this.#render();
+  }
+
+  #pageSize(): number {
+    const attribute = this.getAttribute("page-size");
+    const pageSize = attribute === null ? 10 : Number(attribute);
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
+      throw new RangeError("Table page-size must be a positive integer.");
+    }
+    return pageSize;
+  }
+
+  #updateTable(): void {
+    if (!this.isConnected || !this.shadowRoot) return;
+    try {
+      if (this.#table) {
+        this.#table.setOptions((options) => ({
+          ...options,
+          columns: this.#columns,
+          data: this.#data,
+        }));
+        this.#table.setPageIndex(0);
+      } else {
+        this.#table = constructTable({
+          features,
+          columns: this.#columns,
+          data: this.#data,
+          initialState: { pagination: { pageIndex: 0, pageSize: this.#pageSize() } },
+        });
+      }
+      this.#render();
+    } catch (error) {
+      this.#showError(error);
+    }
+  }
+
+  #render(): void {
+    if (!this.#table || !this.shadowRoot) return;
+    try {
+      const table = this.#table;
+      const label = this.getAttribute("aria-label");
+      if (label === null) this.#tableElement.removeAttribute("aria-label");
+      else this.#tableElement.setAttribute("aria-label", label);
+
+      const headerRows = table.getHeaderGroups().map((group) => {
+        const row = document.createElement("tr");
+        for (const header of group.headers) {
+          const cell = document.createElement("th");
+          cell.scope = "col";
+          cell.colSpan = header.colSpan;
+          const column = header.column;
+          const direction = column.getIsSorted();
+          if (direction)
+            cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
+          if (!header.isPlaceholder && column.getCanSort()) {
+            const button = document.createElement("button");
+            button.type = "button";
+            const rendered = flexRender(column.columnDef.header, header.getContext());
+            this.#appendRendered(button, rendered);
+            const indicator = document.createElement("span");
+            indicator.className = "sort-indicator";
+            indicator.dataset.direction = direction || "none";
+            indicator.setAttribute("aria-hidden", "true");
+            button.append(indicator);
+            button.addEventListener("click", () => {
+              column.toggleSorting();
+              this.#render();
+            });
+            cell.append(button);
+          } else if (!header.isPlaceholder) {
+            this.#appendRendered(cell, flexRender(column.columnDef.header, header.getContext()));
+          }
+          row.append(cell);
+        }
+        return row;
+      });
+      this.#head.replaceChildren(...headerRows);
+
+      const rows = table.getRowModel().rows;
+      const bodyRows = rows.map((row) => {
+        const tr = document.createElement("tr");
+        for (const cell of row.getAllCells()) {
+          const td = document.createElement("td");
+          const value = cell.column.columnDef.cell
+            ? flexRender(cell.column.columnDef.cell, cell.getContext())
+            : cell.renderValue();
+          this.#appendRendered(td, value);
+          tr.append(td);
+        }
+        return tr;
+      });
+      if (bodyRows.length === 0) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.className = "empty";
+        cell.colSpan = Math.max(1, table.getAllLeafColumns().length);
+        cell.textContent = "No rows to display.";
+        row.append(cell);
+        bodyRows.push(row);
+      }
+      this.#body.replaceChildren(...bodyRows);
+
+      const pagination = table.atoms.pagination.get();
+      const pageCount = table.getPageCount();
+      const rowCount = table.getRowCount();
+      const firstRow = rowCount === 0 ? 0 : pagination.pageIndex * pagination.pageSize + 1;
+      const lastRow = Math.min((pagination.pageIndex + 1) * pagination.pageSize, rowCount);
+      this.#status.textContent = `Showing ${firstRow}–${lastRow} of ${rowCount} rows · Page ${pagination.pageIndex + 1} of ${pageCount}`;
+      for (const option of this.#pageSizeSelect.querySelectorAll("option[data-custom]"))
+        option.remove();
+      this.#pageSizeSelect.value = String(pagination.pageSize);
+      if (this.#pageSizeSelect.value !== String(pagination.pageSize)) {
+        const customOption = document.createElement("option");
+        customOption.value = String(pagination.pageSize);
+        customOption.textContent = String(pagination.pageSize);
+        customOption.dataset.custom = "";
+        this.#pageSizeSelect.append(customOption);
+        this.#pageSizeSelect.value = String(pagination.pageSize);
+      }
+      this.#previousButton.disabled = !table.getCanPreviousPage();
+      this.#nextButton.disabled = !table.getCanNextPage();
+      this.#container.hidden = false;
+      this.#pagination.hidden = false;
+      this.#error.hidden = true;
+      this.#error.textContent = "";
+    } catch (error) {
+      this.#showError(error);
+    }
+  }
+
+  #appendRendered(target: HTMLElement, value: unknown): void {
+    if (value instanceof Node) {
+      target.append(value);
+    } else if (value !== null && value !== undefined) {
+      target.textContent = String(value);
+    }
+  }
+
+  #showError(error: unknown): void {
+    const err = error instanceof Error ? error : new Error(String(error));
+    this.#container.hidden = true;
+    this.#pagination.hidden = true;
+    this.#error.textContent = err.message;
+    this.#error.hidden = false;
+    this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
+  }
+}
+
+if (!customElements.get("ms-table")) {
+  customElements.define("ms-table", MsTable);
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "ms-table": MsTable;
+  }
+}
