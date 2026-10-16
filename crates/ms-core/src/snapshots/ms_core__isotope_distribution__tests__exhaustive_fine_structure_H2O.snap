@@ -1,0 +1,126 @@
+---
+source: crates/ms-core/src/isotope_distribution.rs
+expression: fine
+---
+peaks:
+  - nominal_mass: 18
+    abundance: 0.9973405720928633
+    mass: 18.01056468403
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 19
+    abundance: 0.0003799126050255
+    mass: 19.01478182096
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 19
+    abundance: 0.00022941471427350002
+    mass: 19.01684142992
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 20
+    abundance: 0.0020495285271112506
+    mass: 20.014809677320002
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 20
+    abundance: 0.000000087389949
+    mass: 20.021058566849998
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 20
+    abundance: 0.000000013192863250000001
+    mass: 20.02311817581
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 21
+    abundance: 0.00000047144577750000014
+    mass: 21.02108642321
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 21
+    abundance: 0.0000000000050255
+    mass: 21.02733531274
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 22
+    abundance: 0.00000000002711125000000001
+    mass: 22.027363169100003
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+retained_probability: 1.0000000000000002

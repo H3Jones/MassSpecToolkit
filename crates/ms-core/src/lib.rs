@@ -1,5 +1,6 @@
 pub mod formula;
 pub mod ion;
+pub mod isotope_distribution;
 pub mod isotopes;
 pub mod parser;
 

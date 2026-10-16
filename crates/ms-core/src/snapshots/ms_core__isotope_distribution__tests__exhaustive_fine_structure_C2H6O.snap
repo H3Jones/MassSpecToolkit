@@ -1,0 +1,1278 @@
+---
+source: crates/ms-core/src/isotope_distribution.rs
+expression: fine
+---
+peaks:
+  - nominal_mass: 46
+    abundance: 0.975662735452787
+    mass: 46.041864812949996
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 47
+    abundance: 0.021105006104002465
+    mass: 47.045219648019994
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 47
+    abundance: 0.00037165496102735553
+    mass: 47.04608194988
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 47
+    abundance: 0.0006732847152046715
+    mass: 47.04814155884
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.0020049807108054713
+    mass: 48.04610980624
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.00011413300581867298
+    mass: 48.04857448309001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.00000803943815423573
+    mass: 48.04943678495
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.000014564129086606662
+    mass: 48.05149639391
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.0000002564714173218673
+    mass: 48.052358695769996
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 48
+    abundance: 0.0000001935916186574887
+    mass: 48.05441830473001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.000043370653200482235
+    mass: 49.049464641309996
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.0000013835958039732319
+    mass: 49.05238655213
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.00000004347618935121919
+    mass: 49.05279162002
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.00000007876083151050806
+    mass: 49.05485122898
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.000000005547850329210513
+    mass: 49.055713530839995
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.000000004187668694299259
+    mass: 49.057773139800005
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.00000000007374401304153663
+    mass: 49.05863544166
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 49
+    abundance: 0.00000000002968746225230728
+    mass: 49.06069505062
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.00000023454260044736674
+    mass: 50.05281947638001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.00000002992919256547778
+    mass: 50.0557413872
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.00000000039782954403986877
+    mass: 50.05866329802001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.00000000003000202088474299
+    mass: 50.05906836591
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.000000000022646343388760774
+    mass: 50.061127974870004
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.0000000000015951904165459252
+    mass: 50.06199027673
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.0000000000006421830508434
+    mass: 50.06404988569
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.000000000000011308715835356683
+    mass: 50.06491218755
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 50
+    abundance: 0.0000000000000025608381156448022
+    mass: 50.06697179651
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.00000000016185300740453457
+    mass: 51.05909622227
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 5
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.000000000008605632510313545
+    mass: 51.06201813309001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.00000000000006100754595389792
+    mass: 51.06494004391
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.000000000000008626573060265539
+    mass: 51.0653451118
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.0000000000000034728386960600327
+    mass: 51.067404720759995
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.0000000000000002446239956298726
+    mass: 51.06826702262
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.00000000000000005539465852097316
+    mass: 51.07032663158
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.0000000000000000009754889220255468
+    mass: 51.07118893344
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 51
+    abundance: 0.00000000000000000011781210171135771
+    mass: 51.073248542399995
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.00000000000004653809150932726
+    mass: 52.065372968160005
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 4
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 2
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.0000000000000013196820816874709
+    mass: 52.06829487898
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.000000000000000005262506026716767
+    mass: 52.071216789800005
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.0000000000000000013228933353076099
+    mass: 52.07162185769
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.0000000000000000002995667877157651
+    mass: 52.07368146665
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.000000000000000000021101246266397145
+    mass: 52.07454376851
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.0000000000000000000025484473634115577
+    mass: 52.07660337746999
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.00000000000000000000004487765134307961
+    mass: 52.07746567933
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 52
+    abundance: 0.0000000000000000000000022583249901748924
+    mass: 52.07952528829
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.000000000000000007136661414159476
+    mass: 53.07164971405
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 3
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 3
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.00000000000000000011383567064766882
+    mass: 53.07457162487
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.00000000000000000000024210311908766636
+    mass: 53.077493535689996
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.00000000000000000000011411267312769103
+    mass: 53.07789860358
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.000000000000000000000013781657125494625
+    mass: 53.07995821254001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.0000000000000000000000009707689666854376
+    mass: 53.080820514399996
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.00000000000000000000000004885085898083766
+    mass: 53.08288012336
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 53
+    abundance: 0.0000000000000000000000000008602539132757191
+    mass: 53.08374242522
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.0000000000000000000006156078418730702
+    mass: 54.07792645994
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 2
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 4
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.000000000000000000000005237043109750388
+    mass: 54.080848370759995
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.0000000000000000000000000046408434795137495
+    mass: 54.08377028158
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.000000000000000000000000005249786689343061
+    mass: 54.08417534947
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.00000000000000000000000000026417880880165925
+    mass: 54.08623495843
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 16
+        count: 1
+  - nominal_mass: 54
+    abundance: 0.000000000000000000000000000018608545177499633
+    mass: 54.08709726029
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 55
+    abundance: 0.000000000000000000000000028321217666192837
+    mass: 55.08420320583001
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 1
+        count: 1
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 5
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 55
+    abundance: 0.00000000000000000000000000010038820424703752
+    mass: 55.08712511665
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 12
+        count: 1
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 1
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+  - nominal_mass: 55
+    abundance: 0.0000000000000000000000000000001006324842814344
+    mass: 55.09045209536
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 17
+        count: 1
+  - nominal_mass: 56
+    abundance: 0.0000000000000000000000000000005428857704656331
+    mass: 56.09047995172
+    composition:
+      - isotope:
+          atomic_number: 1
+          mass_number: 2
+        count: 6
+      - isotope:
+          atomic_number: 6
+          mass_number: 13
+        count: 2
+      - isotope:
+          atomic_number: 8
+          mass_number: 18
+        count: 1
+retained_probability: 1

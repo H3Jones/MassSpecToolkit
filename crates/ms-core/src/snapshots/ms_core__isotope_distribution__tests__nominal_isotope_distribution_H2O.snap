@@ -1,0 +1,19 @@
+---
+source: crates/ms-core/src/isotope_distribution.rs
+expression: distribution
+---
+- nominal_mass: 18
+  abundance: 0.9973405720928634
+  mass: 18.01056468403
+- nominal_mass: 19
+  abundance: 0.0006093273192990001
+  mass: 19.015557273801367
+- nominal_mass: 20
+  abundance: 0.002049629109923501
+  mass: 20.014809997233016
+- nominal_mass: 21
+  abundance: 0.0000004714508030000002
+  mass: 21.021086489820966
+- nominal_mass: 22
+  abundance: 0.000000000027111250000000015
+  mass: 22.027363169100003

@@ -1,0 +1,46 @@
+---
+source: crates/ms-core/src/isotope_distribution.rs
+expression: distribution
+---
+- nominal_mass: 80
+  abundance: 0.9397557481
+  mass: 79.925181726
+- nominal_mass: 82
+  abundance: 0.0125441654
+  mass: 81.921208693
+- nominal_mass: 83
+  abundance: 0.002617407
+  mass: 82.92135730300001
+- nominal_mass: 84
+  abundance: 0.0404856461
+  mass: 83.91807155781306
+- nominal_mass: 85
+  abundance: 0.000017468999999999998
+  mass: 84.91738427000001
+- nominal_mass: 86
+  abundance: 0.00034930369999999994
+  mass: 85.91460141537793
+- nominal_mass: 87
+  abundance: 0.000056322
+  mass: 86.914248
+- nominal_mass: 88
+  abundance: 0.0040612506
+  mass: 87.91466856279827
+- nominal_mass: 89
+  abundance: 0.000000108
+  mass: 88.91245544
+- nominal_mass: 90
+  abundance: 0.0000258666
+  mass: 89.91101349227306
+- nominal_mass: 91
+  abundance: 0.0000050489999999999994
+  mass: 90.9112892
+- nominal_mass: 92
+  abundance: 0.000078018
+  mass: 91.90800430715537
+- nominal_mass: 94
+  abundance: 0.0000001496
+  mass: 93.90621175999999
+- nominal_mass: 96
+  abundance: 0.0000034969
+  mass: 95.90504552

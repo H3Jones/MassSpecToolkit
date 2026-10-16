@@ -18,12 +18,16 @@ impl Atom {
         }
     }
 
-    fn data(&self) -> &'static IsotopeData {
+    pub(crate) fn data(&self) -> &'static IsotopeData {
         isotope_data(self.isotope).expect("Atom is created only from a valid isotope")
     }
 
     pub fn symbol(&self) -> &'static str {
         self.data().symbol
+    }
+
+    pub fn atomic_number(&self) -> u8 {
+        self.isotope.atomic_number
     }
 
     pub fn mass_number(&self) -> u16 {
