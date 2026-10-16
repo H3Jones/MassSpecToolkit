@@ -112,6 +112,13 @@ fn hill_order(atom: Atom) -> (u8, &'static str, u16, bool) {
     )
 }
 
+pub struct HeteroatomRatios {
+    /// H/C ratio.
+    pub h_to_c: f64,
+    /// O/C ratio.
+    pub o_to_c: f64,
+}
+
 impl Formula {
     pub(crate) fn from_atom_counts(atom_counts: Vec<AtomCount>) -> Result<Self, FormulaParseError> {
         if !is_valid_formula(&atom_counts) {
@@ -185,6 +192,26 @@ impl Formula {
         }
 
         (2 * c + 2 + n - h - halogen_count) as f64 / 2.0
+    }
+
+    /// Returns the ratios of heteroatoms (H/C and O/C) in the formula.
+    pub fn heteroatom_ratios(&self) -> HeteroatomRatios {
+        let mut c = 0;
+        let mut h = 0;
+        let mut o = 0;
+
+        for ac in &self.atom_counts {
+            match ac.atom.symbol() {
+                "C" => c = ac.count,
+                "H" => h = ac.count,
+                "O" => o = ac.count,
+                _ => {}
+            }
+        }
+        HeteroatomRatios {
+            h_to_c: if c != 0 { h as f64 / c as f64 } else { 0.0 },
+            o_to_c: if c != 0 { o as f64 / c as f64 } else { 0.0 },
+        }
     }
 }
 
@@ -369,5 +396,13 @@ mod tests {
         // Multiple halogens
         let formula = Formula::parse("C6H12F2Cl2").unwrap();
         assert_eq!(formula.dbe(), -1.0);
+    }
+
+    #[test]
+    fn calculates_heteroatom_ratios() {
+        let formula = Formula::parse("C6H12O6").unwrap();
+        let ratios = formula.heteroatom_ratios();
+        assert_eq!(ratios.h_to_c, 12.0 / 6.0);
+        assert_eq!(ratios.o_to_c, 6.0 / 6.0);
     }
 }
