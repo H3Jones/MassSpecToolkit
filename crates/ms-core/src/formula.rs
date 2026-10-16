@@ -165,6 +165,27 @@ impl Formula {
             atom_counts: result_counts,
         }
     }
+
+    /// Calculates the double bond equivalent (DBE) of the formula.
+    /// 
+    /// This is given by the formula: DBE = (2C + 2 + N - H - X) / 2
+    /// where C, H, N are the counts of carbon, hydrogen, and nitrogen atoms, respectively,
+    /// and X is the total count of halogen atoms (F, Cl, Br, I).
+    pub fn dbe(&self) -> f64 {
+
+        let (mut c, mut h, mut n, mut halogen_count) = (0, 0, 0, 0);
+        for ac in &self.atom_counts {
+            match ac.atom.symbol() {
+                "C" => c = ac.count,
+                "H" => h = ac.count,
+                "N" => n = ac.count,
+                "F" | "Cl" | "Br" | "I" => halogen_count += ac.count,
+                _ => {}
+            }
+        }
+
+        (2 * c + 2 + n - h - halogen_count) as f64 / 2.0
+    }
 }
 
 impl std::fmt::Display for Formula {
@@ -336,5 +357,17 @@ mod tests {
 
         assert_eq!(removed, None);
         assert_eq!(added, None);
+    }
+
+    #[test]
+    fn calculates_double_bond_equivalent() {
+        let formula = Formula::parse("C6H12O6").unwrap();
+        assert_eq!(formula.dbe(), 1.0);
+        // implausible DBE value for a saturated compound
+        let formula = Formula::parse("C6H17O6").unwrap();
+        assert_eq!(formula.dbe(), -1.5);
+        // Multiple halogens
+        let formula = Formula::parse("C6H12F2Cl2").unwrap();
+        assert_eq!(formula.dbe(), -1.0);
     }
 }
