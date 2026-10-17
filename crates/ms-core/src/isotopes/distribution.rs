@@ -1,5 +1,5 @@
 use super::{ISOTOPES, IsotopeData, IsotopeId};
-use crate::formula::{Atom, Formula};
+use crate::formula::{Atom, Formula, HillOrder};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -20,11 +20,10 @@ pub struct IsotopeCount {
     pub count: u64,
 }
 
-/// Sorts isotope counts in the same order used for chemical formulas.
-pub fn sort_isotope_counts_by_hill_order(composition: &mut [IsotopeCount]) {
-    composition.sort_by_key(|entry| {
-        crate::formula::hill_order(Atom::from_isotope_id(entry.isotope, false))
-    });
+impl HillOrder for IsotopeCount {
+    fn hill_order_key(&self) -> (u8, &'static str, u16, bool) {
+        Atom::from_isotope_id(self.isotope, false).hill_order_key()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

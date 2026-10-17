@@ -5,7 +5,7 @@ mod distribution;
 pub use distribution::{
     FineIsotopeDistribution, FineIsotopeDistributionOptions, FineIsotopePeak, IsotopeCount,
     IsotopeDistributionError, IsotopePeak, fine_isotope_distribution, nominal_isotope_distribution,
-    sort_isotope_counts_by_hill_order, theoretical_isotopologues,
+    theoretical_isotopologues,
 };
 
 use serde::{Deserialize, Serialize};
@@ -113,7 +113,7 @@ mod tests {
             },
         ];
 
-        sort_isotope_counts_by_hill_order(&mut composition);
+        crate::formula::sort_by_hill_order(&mut composition);
 
         assert_eq!(
             composition

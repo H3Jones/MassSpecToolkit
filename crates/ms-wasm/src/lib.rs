@@ -1,9 +1,8 @@
-use ms_core::formula::Formula;
+use ms_core::formula::{Formula, sort_by_hill_order};
 use ms_core::ion::{Charge, Ion};
 use ms_core::isotopes::{
     FineIsotopeDistributionOptions,
     fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
-    sort_isotope_counts_by_hill_order,
 };
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use serde::Serialize;
@@ -114,7 +113,7 @@ pub fn fine_isotope_distribution(
         .peaks
         .into_iter()
         .map(|mut peak| {
-            sort_isotope_counts_by_hill_order(&mut peak.composition);
+            sort_by_hill_order(&mut peak.composition);
             let label = peak
                 .composition
                 .iter()

@@ -73,6 +73,39 @@ impl AtomCount {
     }
 }
 
+/// Provides the key used to sort a value in Hill order.
+pub trait HillOrder {
+    fn hill_order_key(&self) -> (u8, &'static str, u16, bool);
+}
+
+/// Sorts values by their Hill-order key.
+pub fn sort_by_hill_order<T: HillOrder>(values: &mut [T]) {
+    values.sort_by_key(HillOrder::hill_order_key);
+}
+
+impl HillOrder for Atom {
+    fn hill_order_key(&self) -> (u8, &'static str, u16, bool) {
+        let symbol = self.symbol();
+        let priority = match symbol {
+            "C" => 0,
+            "H" => 1,
+            _ => 2,
+        };
+        (
+            priority,
+            symbol,
+            self.mass_number(),
+            self.isotope_was_specified(),
+        )
+    }
+}
+
+impl HillOrder for AtomCount {
+    fn hill_order_key(&self) -> (u8, &'static str, u16, bool) {
+        self.atom.hill_order_key()
+    }
+}
+
 impl std::fmt::Display for Atom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.isotope_was_specified {
@@ -97,22 +130,7 @@ fn is_valid_formula(atom_counts: &[AtomCount]) -> bool {
     !atom_counts.is_empty() && atom_counts.iter().all(|ac| ac.count > 0)
 }
 
-pub(crate) fn hill_order(atom: Atom) -> (u8, &'static str, u16, bool) {
-    let symbol = atom.symbol();
-    let priority = match symbol {
-        "C" => 0,
-        "H" => 1,
-        _ => 2,
-    };
-    (
-        priority,
-        symbol,
-        atom.mass_number(),
-        atom.isotope_was_specified(),
-    )
-}
-
-pub struct HeteroatomRatios {
+pub(crate) struct HeteroatomRatios {
     /// H/C ratio.
     pub h_to_c: f64,
     /// O/C ratio.
@@ -167,7 +185,7 @@ impl Formula {
             }
         }
         result_counts.retain(|atom_count| atom_count.count != 0);
-        result_counts.sort_by_key(|atom_count| hill_order(atom_count.atom));
+        sort_by_hill_order(&mut result_counts);
         FormulaDelta {
             atom_counts: result_counts,
         }
