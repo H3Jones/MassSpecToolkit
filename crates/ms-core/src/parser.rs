@@ -78,56 +78,27 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
         ))
     })?;
 
+    let mut expanded_atoms: Vec<ParsedAtom> = Vec::new();
+    for component in formula_pair.into_inner() {
+        if component.as_rule() == Rule::component {
+            append_component(component, &mut expanded_atoms)?;
+        }
+    }
+
     let mut parsed_atoms: Vec<ParsedAtom> = Vec::new();
     let mut atom_indices: HashMap<(String, Option<u16>), usize> = HashMap::new();
-    for atom_pair in formula_pair.into_inner() {
-        if atom_pair.as_rule() != Rule::atom_count {
-            continue;
-        }
-
-        let mut symbol = None;
-        let mut mass_number = None;
-        let mut count = 1_i32;
-        for part in atom_pair.into_inner() {
-            match part.as_rule() {
-                Rule::isotope => {
-                    let value = part.as_str().trim_start_matches('^');
-                    mass_number =
-                        Some(value.parse::<u16>().map_err(|_| {
-                            FormulaParseError::InvalidIsotopeNumber(value.to_owned())
-                        })?);
-                }
-                Rule::element => symbol = Some(part.as_str()),
-                Rule::number => {
-                    let value = part.as_str();
-                    count = value
-                        .parse::<i32>()
-                        .map_err(|_| FormulaParseError::InvalidAtomCount(value.to_owned()))?;
-                    if count == 0 {
-                        return Err(FormulaParseError::InvalidAtomCount(value.to_owned()));
-                    }
-                }
-                _ => unreachable!("grammar only produces isotope, element, and number here"),
-            }
-        }
-
-        let symbol = symbol.expect("each atom_count contains an element");
-        let key = (symbol.to_owned(), mass_number);
+    for parsed_atom in expanded_atoms {
+        let key = (parsed_atom.symbol.clone(), parsed_atom.mass_number);
         if let Some(&index) = atom_indices.get(&key) {
-            parsed_atoms[index].count =
-                parsed_atoms[index]
-                    .count
-                    .checked_add(count)
-                    .ok_or_else(|| FormulaParseError::CountOverflow {
-                        symbol: symbol.to_owned(),
-                    })?;
+            parsed_atoms[index].count = parsed_atoms[index]
+                .count
+                .checked_add(parsed_atom.count)
+                .ok_or_else(|| FormulaParseError::CountOverflow {
+                    symbol: parsed_atom.symbol.clone(),
+                })?;
         } else {
             atom_indices.insert(key, parsed_atoms.len());
-            parsed_atoms.push(ParsedAtom {
-                symbol: symbol.to_owned(),
-                mass_number,
-                count,
-            });
+            parsed_atoms.push(parsed_atom);
         }
     }
 
@@ -173,6 +144,75 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
     }
 
     Formula::from_atom_counts(atoms)
+}
+
+fn append_component(
+    component: pest::iterators::Pair<'_, Rule>,
+    atoms: &mut Vec<ParsedAtom>,
+) -> Result<(), FormulaParseError> {
+    let inner = component
+        .into_inner()
+        .next()
+        .expect("component is not empty");
+    match inner.as_rule() {
+        Rule::atom_count => {
+            let mut symbol = None;
+            let mut mass_number = None;
+            let mut count = 1;
+            for part in inner.into_inner() {
+                match part.as_rule() {
+                    Rule::isotope => {
+                        let value = part.as_str().trim_start_matches('^');
+                        mass_number = Some(value.parse::<u16>().map_err(|_| {
+                            FormulaParseError::InvalidIsotopeNumber(value.to_owned())
+                        })?);
+                    }
+                    Rule::element => symbol = Some(part.as_str()),
+                    Rule::number => count = parse_count(part.as_str())?,
+                    _ => unreachable!("grammar only produces isotope, element, and number here"),
+                }
+            }
+
+            atoms.push(ParsedAtom {
+                symbol: symbol
+                    .expect("each atom_count contains an element")
+                    .to_owned(),
+                mass_number,
+                count,
+            });
+        }
+        Rule::group => {
+            let mut group_atoms = Vec::new();
+            let mut multiplier = 1;
+            for part in inner.into_inner() {
+                match part.as_rule() {
+                    Rule::component => append_component(part, &mut group_atoms)?,
+                    Rule::number => multiplier = parse_count(part.as_str())?,
+                    _ => unreachable!("grammar only produces components and a number in a group"),
+                }
+            }
+            for atom in &mut group_atoms {
+                atom.count = atom.count.checked_mul(multiplier).ok_or_else(|| {
+                    FormulaParseError::CountOverflow {
+                        symbol: atom.symbol.clone(),
+                    }
+                })?;
+            }
+            atoms.extend(group_atoms);
+        }
+        _ => unreachable!("grammar only produces groups and atom counts in a component"),
+    }
+    Ok(())
+}
+
+fn parse_count(value: &str) -> Result<i32, FormulaParseError> {
+    let count = value
+        .parse::<i32>()
+        .map_err(|_| FormulaParseError::InvalidAtomCount(value.to_owned()))?;
+    if count == 0 {
+        return Err(FormulaParseError::InvalidAtomCount(value.to_owned()));
+    }
+    Ok(count)
 }
 
 struct ParsedAtom {
@@ -247,6 +287,33 @@ mod tests {
         assert_eq!(formula.atom_counts()[0].count, 5);
         assert_eq!(formula.atom_counts()[1].atom.symbol(), "H");
         assert_eq!(formula.atom_counts()[1].count, 9);
+    }
+
+    #[test]
+    fn expands_parenthesized_groups() {
+        let formula = Formula::parse("C2(OH)2").unwrap();
+        assert_eq!(formula.atom_counts().len(), 3);
+        assert_eq!(formula.atom_counts()[0].atom.symbol(), "C");
+        assert_eq!(formula.atom_counts()[0].count, 2);
+        assert_eq!(formula.atom_counts()[1].atom.symbol(), "O");
+        assert_eq!(formula.atom_counts()[1].count, 2);
+        assert_eq!(formula.atom_counts()[2].atom.symbol(), "H");
+        assert_eq!(formula.atom_counts()[2].count, 2);
+    }
+
+    #[test]
+    fn expands_nested_groups_and_rejects_invalid_group_counts() {
+        let formula = Formula::parse("C(OH2)2").unwrap();
+        assert_eq!(formula.atom_counts()[1].count, 2);
+        assert_eq!(formula.atom_counts()[2].count, 4);
+        assert!(matches!(
+            Formula::parse("(OH)0"),
+            Err(FormulaParseError::InvalidAtomCount(value)) if value == "0"
+        ));
+        assert!(matches!(
+            Formula::parse("(C2147483647)2"),
+            Err(FormulaParseError::CountOverflow { symbol }) if symbol == "C"
+        ));
     }
 
     #[test]

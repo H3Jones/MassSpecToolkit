@@ -1,6 +1,8 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
-formula     = { SOI ~ atom_count+ ~ EOI }
+formula     = { SOI ~ component+ ~ EOI }
+component   = { group | atom_count }
+group       = { "(" ~ component+ ~ ")" ~ number? }
 atom_count  = { isotope? ~ element ~ number? }
 isotope     = @{ "^" ~ ASCII_DIGIT+ }
 element     = @{ ASCII_ALPHA_UPPER ~ ASCII_ALPHA_LOWER? }
