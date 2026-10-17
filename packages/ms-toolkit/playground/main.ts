@@ -7,6 +7,37 @@ import isotopePeaks from "./ethanol-isotope-spectrum.json";
 
 type IsotopePeak = { label: string; mz: number; int: number };
 
+const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+const activateTab = (tab: HTMLButtonElement): void => {
+  for (const candidate of tabs) {
+    const selected = candidate === tab;
+    candidate.setAttribute("aria-selected", String(selected));
+    candidate.tabIndex = selected ? 0 : -1;
+    document.getElementById(candidate.getAttribute("aria-controls")!)!.hidden = !selected;
+  }
+};
+
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener("click", () => activateTab(tab));
+  tab.addEventListener("keydown", (event: KeyboardEvent) => {
+    const nextIndex =
+      event.key === "ArrowRight"
+        ? (index + 1) % tabs.length
+        : event.key === "ArrowLeft"
+          ? (index - 1 + tabs.length) % tabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : undefined;
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex]!;
+    activateTab(nextTab);
+    nextTab.focus();
+  });
+}
+
 const spectrum = document.querySelector<MsMassSpectrum>("#centroid-spectrum")!;
 spectrum.data = [
   { mz: 27, int: 120 },
