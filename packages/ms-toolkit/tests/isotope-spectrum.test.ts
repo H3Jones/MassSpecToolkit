@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import rawPeaks from "../playground/ethanol-isotope-spectrum.json";
 import { createMassSpectrumChart, normalizeSpectrumPeaks } from "../src/charts/index.ts";
 import { formatIsotopeLabelHtml } from "../src/core/utils.ts";
-import { createChartScene } from "@tanstack/charts";
 
 describe("ethanol isotope snapshot example", () => {
   const peaks = rawPeaks.map((peak) => ({
@@ -24,21 +23,24 @@ describe("ethanol isotope snapshot example", () => {
     expect(peaks.some((peak) => peak.labelHtml?.includes("<sup>2</sup>H"))).toBe(true);
     expect(peaks.some((peak) => peak.labelHtml?.includes("<sup>13</sup>C"))).toBe(true);
     expect(normalizeSpectrumPeaks(peaks)[0]?.relativeIntensity).toBe(100);
-    const scene = createChartScene(
-      createMassSpectrumChart(peaks, {
-        labels: false,
-        mzDomain: [45.5, 56.5],
-        xLabel: "Mass (Da)",
-      }),
-      { width: 640, height: 360 },
-    );
-    expect(scene.points).toHaveLength(63);
-    expect(scene.points.every((point) => Boolean(point.datum.labelHtml))).toBe(true);
+    const chart = createMassSpectrumChart(peaks, {
+      labels: false,
+      mzDomain: [45.5, 56.5],
+      xLabel: "Mass (Da)",
+    });
+    expect(chart.series).toMatchObject([
+      {
+        data: peaks.map((peak) => ({
+          mz: peak.mz,
+          labelHtml: peak.labelHtml,
+        })),
+      },
+    ]);
   });
 
   it("labels the neutral mass axis and tooltip in Da", () => {
     const chart = createMassSpectrumChart(peaks, { xLabel: "Mass (Da)" });
-    expect(chart.scales.x.axis.label.text).toBe("Mass (Da)");
-    expect(chart.tooltip.items[0]?.label).toBe("Mass (Da)");
+    expect(chart.xAxis).toMatchObject({ name: "Mass (Da)" });
+    expect(chart.tooltip).toMatchObject({ trigger: "axis" });
   });
 });

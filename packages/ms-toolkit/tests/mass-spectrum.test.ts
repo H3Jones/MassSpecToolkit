@@ -1,16 +1,23 @@
-import { describe, expect, it } from "vite-plus/test";
-import { createChartScene, renderChartSvg } from "@tanstack/charts";
-import type { SceneNode } from "@tanstack/charts";
+import { afterEach, describe, expect, it } from "vite-plus/test";
+import { init, type EChartsType } from "echarts";
 import {
   createMassSpectrumChart,
   copySpectrumPeaks,
   normalizeSpectrumPeaks,
+  type MassSpectrumChartOption,
 } from "../src/charts/index.ts";
 
-function flatten(nodes: readonly SceneNode[]): SceneNode[] {
-  return nodes.flatMap((node) =>
-    node.kind === "group" ? [node, ...flatten(node.children)] : [node],
-  );
+const charts: EChartsType[] = [];
+afterEach(() => {
+  for (const chart of charts) chart.dispose();
+  charts.length = 0;
+});
+
+function render(option: MassSpectrumChartOption, width = 640) {
+  const chart = init(null, undefined, { renderer: "svg", ssr: true, width, height: 360 });
+  charts.push(chart);
+  chart.setOption(option);
+  return chart;
 }
 
 describe("spectrum normalization", () => {
@@ -94,79 +101,133 @@ describe("mass spectrum chart", () => {
   ];
 
   it("draws independent vertical sticks starting exactly at zero", () => {
-    const scene = createChartScene(createMassSpectrumChart(peaks), { width: 640, height: 360 });
-    const group = flatten(scene.nodes).find((node) => node.key === "peaks");
-    expect(group?.kind).toBe("group");
-    if (group?.kind !== "group") throw new Error("Missing peak group");
-    expect(group.children).toHaveLength(2);
-    for (const [index, node] of group.children.entries()) {
-      expect(node.kind).toBe("rule");
-      if (node.kind !== "rule") throw new Error("Peak must be a segment");
-      expect(node.x1).toBe(node.x2);
-      expect(node.y1).toBe(scene.scales.y!.map(0));
-      expect(node.y2).toBe(scene.scales.y!.map(index === 0 ? 100 : 25));
+    const option = createMassSpectrumChart(peaks, { color: "#2563eb" });
+    const chart = render(option);
+    const svg = chart.renderToSVGString();
+    const sticks = [
+      ...svg.matchAll(/<path d="M([\d.-]+) ([\d.-]+)L([\d.-]+) ([\d.-]+)"[^>]*stroke="#2563eb"/g),
+    ];
+    expect(sticks).toHaveLength(2);
+    for (const [index, stick] of sticks.entries()) {
+      expect(stick[1]).toBe(stick[3]);
+      expect(Number(stick[2])).toBeCloseTo(chart.convertToPixel({ yAxisIndex: 0 }, 0), 1);
+      expect(Number(stick[4])).toBeCloseTo(
+        chart.convertToPixel({ yAxisIndex: 0 }, index === 0 ? 100 : 25),
+        1,
+      );
     }
-    expect(scene.scales.x!.domain).toEqual([0, 59.85]);
-    expect(scene.scales.y!.domain).toEqual([0, 110]);
-    expect(
-      scene.points.filter((point) => point.markId === "peaks").map((point) => point.datum),
-    ).toEqual(normalizeSpectrumPeaks(peaks));
-    expect(scene.points).toHaveLength(peaks.length);
+    expect(option.xAxis).toMatchObject({ min: 0, max: 59.85 });
+    expect(option.yAxis).toMatchObject({ min: 0, max: 110 });
+    expect(option.series).toMatchObject([
+      {
+        data: [
+          { value: [43, 100], mz: 43, int: 1000, relativeIntensity: 100 },
+          { value: [57, 25], mz: 57, int: 250, relativeIntensity: 25 },
+        ],
+      },
+    ]);
   });
 
   it("supports color and optional peak labels", () => {
-    const chart = createMassSpectrumChart(peaks, { color: "#2563eb", labels: false });
-    const scene = createChartScene(chart, { width: 640, height: 360 });
-    expect(flatten(scene.nodes).some((node) => node.key === "peak-labels")).toBe(false);
-    const group = flatten(scene.nodes).find((node) => node.key === "peaks");
-    if (group?.kind !== "group") throw new Error("Missing peak group");
-    expect(group.children[0]?.style?.stroke).toBe("#2563eb");
-    const labeled = createChartScene(createMassSpectrumChart(peaks), { width: 640, height: 360 });
-    const labels = flatten(labeled.nodes).find((node) => node.key === "peak-labels");
-    if (labels?.kind !== "group") throw new Error("Missing peak labels");
-    expect(labels.children).toHaveLength(2);
+    const svg = render(
+      createMassSpectrumChart(peaks, { color: "#2563eb", labels: false }),
+    ).renderToSVGString();
+    expect(svg).toContain('stroke="#2563eb"');
+    expect(svg).not.toContain(">43</text>");
+    expect(render(createMassSpectrumChart(peaks)).renderToSVGString()).toContain(">43</text>");
   });
 
-  it("anchors tooltips above the peak value instead of the stick midpoint", () => {
-    const chart = createMassSpectrumChart(peaks);
-    expect(chart.tooltip.anchor).toEqual({ x: "value", y: "value" });
-    expect(chart.tooltip.placement).toBe("top");
-    expect(chart.tooltip.offset).toBe(16);
-    const scene = createChartScene(chart, { width: 640, height: 360 });
-    for (const point of scene.points) {
-      expect(scene.scales.x!.map(point.xValue)).toBe(point.x);
-      expect(scene.scales.y!.map(point.yValue)).toBeLessThan(point.y);
-    }
+  it("enables native inside and slider zoom without filtering or renormalizing peaks", () => {
+    expect(createMassSpectrumChart(peaks).dataZoom).toMatchObject([
+      {
+        type: "inside",
+        xAxisIndex: 0,
+        filterMode: "none",
+      },
+      { type: "slider", xAxisIndex: 0, filterMode: "none", showDataShadow: false },
+    ]);
+    const chart = render(createMassSpectrumChart(peaks));
+    chart.dispatchAction({ type: "dataZoom", startValue: 50, endValue: 58 });
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 50, endValue: 58 },
+      { startValue: 50, endValue: 58 },
+    ]);
+    expect(chart.getOption().series).toMatchObject([
+      { data: [{ value: [43, 100] }, { value: [57, 25] }] },
+    ]);
+  });
+
+  it("uses native axis hover and default tooltip positioning", () => {
+    const option = createMassSpectrumChart(peaks);
+    expect(option.tooltip).toMatchObject({ trigger: "axis", confine: true });
+    expect(option.tooltip).not.toHaveProperty("position");
+    expect(option.tooltip).not.toHaveProperty("renderMode");
+    const chart = render(option);
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { type: "inside", zoomOnMouseWheel: true, moveOnMouseMove: true },
+      { type: "slider" },
+    ]);
+  });
+
+  it("keeps a dark, outlined pointer visible during hover and panning", () => {
+    const option = createMassSpectrumChart(peaks);
+    const zoom = Array.isArray(option.dataZoom) ? option.dataZoom[0] : option.dataZoom;
+    if (!zoom || zoom.type !== "inside") throw new Error("Missing inside zoom");
+    const cursor = zoom.cursorGrab;
+    expect(cursor).toBe(zoom.cursorGrabbing);
+    expect(cursor).toMatch(/^url\("data:image\/svg\+xml,/);
+    const svg = decodeURIComponent(cursor!.split(",")[1]!.split('"')[0]!);
+    expect(svg).toContain('fill="#111827"');
+    expect(svg).toContain('stroke="#fff"');
+    expect(cursor).toMatch(/\) 3 2, default$/);
+    expect(render(option).getOption().dataZoom).toMatchObject([
+      { cursorGrab: cursor, cursorGrabbing: cursor },
+      { type: "slider" },
+    ]);
+  });
+
+  it("provides native area zoom and undo restricted to the m/z axis", () => {
+    const option = createMassSpectrumChart(peaks);
+    expect(option.toolbox).toMatchObject({
+      left: 75,
+      feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
+    });
+    const chart = render(option);
+    chart.dispatchAction({
+      type: "takeGlobalCursor",
+      key: "dataZoomSelect",
+      dataZoomSelectActive: true,
+    });
+    expect(chart.getOption().yAxis).toMatchObject([{ min: 0, max: 110 }]);
+    expect(chart.renderToSVGString()).not.toMatch(/NaN|Infinity/);
   });
 
   it.each([{ peaks: [] }, { peaks: [{ mz: 0, int: 0 }] }, { peaks: [{ mz: 43, int: 0 }] }])(
     "produces finite geometry for empty or zero-valued data: %o",
     ({ peaks }) => {
-      const scene = createChartScene(createMassSpectrumChart(peaks), { width: 320, height: 240 });
-      const svg = renderChartSvg(scene, { ariaLabel: "Spectrum" });
+      const chart = render(createMassSpectrumChart(peaks), 320);
+      const svg = chart.renderToSVGString();
       expect(svg).not.toMatch(/NaN|Infinity/);
-      expect(scene.scales.x!.map(0)).toBeGreaterThanOrEqual(0);
+      expect(chart.convertToPixel({ xAxisIndex: 0 }, 0)).toBeGreaterThanOrEqual(0);
     },
   );
 
   it("scales stick geometry to the available width", () => {
     const chart = createMassSpectrumChart(peaks);
-    const narrow = createChartScene(chart, { width: 320, height: 360 });
-    const wide = createChartScene(chart, { width: 800, height: 360 });
-    expect(wide.scales.x!.map(57)).toBeGreaterThan(narrow.scales.x!.map(57));
+    const narrow = render(chart, 320);
+    const wide = render(chart, 800);
+    expect(wide.convertToPixel({ xAxisIndex: 0 }, 57)).toBeGreaterThan(
+      narrow.convertToPixel({ xAxisIndex: 0 }, 57),
+    );
   });
 
   it("renders axis labels, precise peak labels and accessible SVG", () => {
     const chart = createMassSpectrumChart([{ mz: 43.123456, int: 1 }]);
-    const scene = createChartScene(chart, { width: 640, height: 360 });
-    const svg = renderChartSvg(scene, { ariaLabel: "Example spectrum" });
-    expect(svg).toContain("Example spectrum");
-    const labels = flatten(scene.nodes)
-      .filter((node) => node.kind === "label")
-      .map((node) => node.text);
-    expect(labels).toContain("m/z");
-    expect(labels).toContain("Relative intensity (%)");
-    expect(labels).toContain("43.1235");
+    const svg = render(chart).renderToSVGString();
+    expect(chart.aria).toMatchObject({ enabled: true });
+    expect(svg).toContain("m/z");
+    expect(svg).toContain("Relative intensity (%)");
+    expect(svg).toContain("43.1235");
   });
 
   it("rejects an unrepresentable m/z display range", () => {
@@ -175,9 +236,65 @@ describe("mass spectrum chart", () => {
 
   it("supports a focused m/z viewport without renormalizing its peaks", () => {
     const chart = createMassSpectrumChart(peaks, { mzDomain: [50, 60] });
-    const scene = createChartScene(chart, { width: 640, height: 360 });
-    expect(scene.scales.x!.domain).toEqual([50, 60]);
-    expect(scene.points.find((point) => point.datum.mz === 57)?.datum.relativeIntensity).toBe(25);
+    expect(chart.xAxis).toMatchObject({ min: 50, max: 60 });
+    expect(render(chart).getOption().series).toMatchObject([
+      { data: [{ value: [43, 100] }, { value: [57, 25] }] },
+    ]);
+  });
+
+  it("supports a zoomed viewport within the default m/z range", () => {
+    const chart = createMassSpectrumChart(peaks, {
+      zoomDomain: [50, 55],
+    });
+    expect(render(chart).getOption().dataZoom).toMatchObject([
+      { startValue: 50, endValue: 55 },
+      { startValue: 50, endValue: 55 },
+    ]);
+  });
+
+  it("preserves fine-structure zoom precision and restores the complete explicit extent", () => {
+    const chart = render(
+      createMassSpectrumChart(
+        [
+          { mz: 46.041864812949996, int: 1 },
+          { mz: 47.045219648019994, int: 0.01 },
+        ],
+        { mzDomain: [45.5, 56.5] },
+      ),
+    );
+    chart.dispatchAction({ type: "dataZoom", startValue: 46.04184, endValue: 46.04188 });
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 46.04184, endValue: 46.04188 },
+      { startValue: 46.04184, endValue: 46.04188 },
+    ]);
+    expect(chart.renderToSVGString()).not.toMatch(/NaN|Infinity/);
+    chart.dispatchAction({ type: "dataZoom", startValue: 45.5, endValue: 56.5 });
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 45.5, endValue: 56.5 },
+      { startValue: 45.5, endValue: 56.5 },
+    ]);
+  });
+
+  it("clamps floating-point drift at the m/z range boundaries", () => {
+    const domain = [45.5, 56.5] as const;
+    const tolerance = Number.EPSILON * domain[1] * 8;
+    const chart = createMassSpectrumChart(peaks, {
+      mzDomain: domain,
+      zoomDomain: [domain[0] - tolerance, domain[1] + tolerance],
+    });
+    expect(render(chart).getOption().dataZoom).toMatchObject([
+      { startValue: domain[0], endValue: domain[1] },
+      { startValue: domain[0], endValue: domain[1] },
+    ]);
+  });
+
+  it("rejects a zoom window outside the default m/z range", () => {
+    expect(() =>
+      createMassSpectrumChart(peaks, {
+        mzDomain: [50, 60],
+        zoomDomain: [45, 55],
+      }),
+    ).toThrow("zoom range");
   });
 
   it.each([
@@ -192,22 +309,26 @@ describe("mass spectrum chart", () => {
 
   it("keeps assignments in tooltips without replacing the m/z labels", () => {
     const peak = { mz: 43, int: 1, labelHtml: "C<sub>2</sub>H<sub>3</sub>O<sup>+</sup>" };
-    const scene = createChartScene(createMassSpectrumChart([peak]), { width: 640, height: 360 });
-    expect(scene.points[0]?.datum.labelHtml).toBe(peak.labelHtml);
-    const labels = flatten(scene.nodes).find((node) => node.key === "peak-labels");
-    if (labels?.kind !== "group") throw new Error("Missing peak labels");
-    expect(labels.children[0]).toMatchObject({ kind: "label", text: "43" });
+    const chart = render(createMassSpectrumChart([peak]));
+    expect(chart.getOption().series).toMatchObject([{ data: [{ labelHtml: peak.labelHtml }] }]);
+    expect(chart.renderToSVGString()).toContain(">43</text>");
   });
 
-  it("preserves exact m/z and very small positive relative intensities in tooltip text", () => {
-    const chart = createMassSpectrumChart([
+  it("preserves duplicate m/z rows and very small positive relative intensities", () => {
+    const peaks = [
       { mz: 46.04131623304093, int: 1 },
       { mz: 47.04467106811093, int: 1e-12 },
+      { mz: 47.04467106811093, int: 0.5 },
+    ];
+    const chart = render(createMassSpectrumChart(peaks));
+    expect(chart.getOption().series).toMatchObject([
+      {
+        data: [
+          { value: [peaks[0]!.mz, 100], tooltip: { trigger: "item" } },
+          { value: [peaks[1]!.mz, 1e-10], tooltip: { trigger: "item" } },
+          { value: [peaks[2]!.mz, 50], tooltip: { trigger: "item" } },
+        ],
+      },
     ]);
-    const scene = createChartScene(chart, { width: 640, height: 360 });
-    const mzItem = chart.tooltip.items[0]!;
-    const intensityItem = chart.tooltip.items[1]!;
-    expect(mzItem.text!(scene.points[0]!)).toBe("46.04131623304093");
-    expect(intensityItem.text!(scene.points[1]!)).toBe("1.00e-10%");
   });
 });

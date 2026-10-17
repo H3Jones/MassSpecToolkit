@@ -54,10 +54,10 @@
     "check": "vp check"
   },
   "dependencies": {
-    "@tanstack/charts": "^1.1.0",
     "@tanstack/table-core": "^9.3.1",
     "comlink": "^4.4.2",
-    "dompurify": "^3.3.0"
+    "dompurify": "^3.3.0",
+    "echarts": "^6.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

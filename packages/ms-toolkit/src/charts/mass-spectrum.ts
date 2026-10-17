@@ -1,10 +1,26 @@
-import { defineChart } from "@tanstack/charts/scene";
-import { frame } from "@tanstack/charts/frame";
-import { link } from "@tanstack/charts/link";
-import { createMark } from "@tanstack/charts";
-import { text } from "@tanstack/charts/text";
-import { scaleLinear } from "@tanstack/charts/scales/linear";
-import { spectrumTooltip } from "./spectrum-tooltip.ts";
+import type { ComposeOption } from "echarts/core";
+import type { CustomSeriesOption } from "echarts/charts";
+import type {
+  AriaComponentOption,
+  DataZoomComponentOption,
+  GridComponentOption,
+  ToolboxComponentOption,
+  TooltipComponentOption,
+} from "echarts/components";
+import { createSpectrumTooltip } from "./spectrum-tooltip.ts";
+
+const plotCursor = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="26" viewBox="0 0 24 26"><path d="M3 2V22L8 17L12 24L16 22L12 15L21 14Z" fill="#111827" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>',
+)}") 3 2, default`;
+
+export type MassSpectrumChartOption = ComposeOption<
+  | CustomSeriesOption
+  | AriaComponentOption
+  | DataZoomComponentOption
+  | GridComponentOption
+  | ToolboxComponentOption
+  | TooltipComponentOption
+>;
 
 /** A centroid peak. `int` is the original, non-negative intensity. */
 export interface SpectrumPeak {
@@ -24,6 +40,7 @@ export interface MassSpectrumOptions {
   color?: string;
   labels?: boolean;
   mzDomain?: readonly [number, number];
+  zoomDomain?: readonly [number, number];
   xLabel?: string;
 }
 
@@ -67,18 +84,54 @@ export function normalizeSpectrumPeaks(peaks: readonly SpectrumPeak[]): Relative
   }));
 }
 
+export function getAutomaticMzDomain(peaks: readonly SpectrumPeak[]): readonly [number, number] {
+  let maximumMz = 0;
+  for (const peak of peaks) maximumMz = Math.max(maximumMz, peak.mz);
+  const upperMz = maximumMz === 0 ? 1 : maximumMz + maximumMz * 0.05;
+  return [0, upperMz];
+}
+
+function normalizeZoomDomain(
+  domain: readonly [number, number],
+  extent: readonly [number, number],
+): readonly [number, number] {
+  const tolerance =
+    Math.max(Math.abs(extent[0]), Math.abs(extent[1]), Math.abs(extent[1] - extent[0]), 1) *
+    Number.EPSILON *
+    32;
+  if (
+    domain.length !== 2 ||
+    !Number.isFinite(domain[0]) ||
+    !Number.isFinite(domain[1]) ||
+    domain[0] < extent[0] - tolerance ||
+    domain[1] > extent[1] + tolerance ||
+    domain[1] <= domain[0]
+  ) {
+    throw new RangeError(
+      "Spectrum zoom range must be finite, increasing, and within the m/z range.",
+    );
+  }
+  const normalized: readonly [number, number] = [
+    Math.max(domain[0], extent[0]),
+    Math.min(domain[1], extent[1]),
+  ];
+  if (normalized[1] <= normalized[0]) {
+    throw new RangeError(
+      "Spectrum zoom range must be finite, increasing, and within the m/z range.",
+    );
+  }
+  return normalized;
+}
+
 /** NIST-inspired stick spectrum with one baseline-to-peak segment per row. */
 export function createMassSpectrumChart(
   peaks: readonly SpectrumPeak[],
   options: MassSpectrumOptions = {},
-) {
+): MassSpectrumChartOption {
   const data = normalizeSpectrumPeaks(peaks);
   const color = options.color ?? "currentColor";
   const xLabel = options.xLabel ?? "m/z";
-  let maximumMz = 0;
-  for (const peak of data) maximumMz = Math.max(maximumMz, peak.mz);
-  const upperMz = maximumMz === 0 ? 1 : maximumMz + maximumMz * 0.05;
-  const mzDomain = options.mzDomain ?? [0, upperMz];
+  const mzDomain = options.mzDomain ?? getAutomaticMzDomain(data);
   if (
     mzDomain.length !== 2 ||
     !Number.isFinite(mzDomain[0]) ||
@@ -88,71 +141,114 @@ export function createMassSpectrumChart(
   ) {
     throw new RangeError("Spectrum m/z range must have finite, increasing, non-negative bounds.");
   }
-  const peakLabels = text(data, {
-    id: "peak-labels",
-    x: "mz",
-    y: "relativeIntensity",
-    text: (peak) => Number(peak.mz.toFixed(4)).toString(),
-    fill: color,
-    fontSize: 12,
-    dy: -7,
-  });
+  const zoomDomain = normalizeZoomDomain(options.zoomDomain ?? mzDomain, mzDomain);
+  const zoom = {
+    xAxisIndex: 0,
+    filterMode: "none" as const,
+    startValue: zoomDomain[0],
+    endValue: zoomDomain[1],
+    rangeMode: ["value", "value"] as ["value", "value"],
+    minValueSpan: (mzDomain[1] - mzDomain[0]) / 1_000_000,
+  };
 
-  return defineChart({
-    marks: [
-      frame({ stroke: "currentColor", strokeOpacity: 0.4 }),
-      link(data, {
-        id: "peaks",
-        x1: "mz",
-        x2: "mz",
-        y1: () => 0,
-        y2: "relativeIntensity",
-        stroke: color,
-        strokeWidth: 1.5,
-        lineCap: "butt",
-      }),
-      ...(options.labels === false
-        ? []
-        : [
-            createMark<RelativeSpectrumPeak, number, number>((context) => ({
-              ...peakLabels.initialize(context),
-              // Labels decorate the sticks, not additional keyboard or tooltip targets.
-              postDomain: (scene) => ({ ...scene, points: [] }),
-            })),
-          ]),
+  return {
+    animation: false,
+    aria: { enabled: true },
+    grid: { left: 75, right: 25, top: 45, bottom: 90 },
+    toolbox: {
+      left: 75,
+      feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
+    },
+    xAxis: {
+      type: "value",
+      min: mzDomain[0],
+      max: mzDomain[1],
+      name: xLabel,
+      nameLocation: "middle",
+      nameGap: 30,
+      nameTextStyle: { fontSize: 16 },
+      splitLine: { show: true },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: 110,
+      interval: 20,
+      name: "Relative intensity (%)",
+      nameLocation: "middle",
+      nameGap: 45,
+      nameTextStyle: { fontSize: 16 },
+      axisLabel: { formatter: (value: number) => (value <= 100 ? String(value) : "") },
+      splitLine: { show: true },
+    },
+    dataZoom: [
+      {
+        ...zoom,
+        id: "mz-inside",
+        type: "inside",
+        cursorGrab: plotCursor,
+        cursorGrabbing: plotCursor,
+      },
+      { ...zoom, id: "mz-slider", type: "slider", bottom: 8, height: 22, showDataShadow: false },
     ],
-    scales: {
-      x: {
-        scale: scaleLinear().domain(mzDomain),
-        viewport: options.mzDomain ? { domain: mzDomain } : undefined,
-        grid: true,
-        axis: { label: { text: xLabel, fontSize: 16 } },
-      },
-      y: {
-        scale: scaleLinear().domain([0, 110]),
-        grid: true,
-        axis: {
-          label: { text: "Relative intensity (%)", fontSize: 16 },
-          ticks: { values: [0, 20, 40, 60, 80, 100] },
+    series: [
+      {
+        id: "peaks",
+        type: "custom",
+        coordinateSystem: "cartesian2d",
+        clip: true,
+        dimensions: ["mz", "relativeIntensity"],
+        encode: { x: 0, y: 1, tooltip: [0, 1] },
+        data: data.map((peak) => ({
+          value: [peak.mz, peak.relativeIntensity],
+          ...peak,
+          // Direct/keyboard inspection must distinguish peaks with identical m/z.
+          tooltip: { trigger: "item" },
+        })),
+        renderItem: (_params, api) => {
+          const mz = Number(api.value(0));
+          const baseline = api.coord([mz, 0]);
+          const top = api.coord([mz, Number(api.value(1))]);
+          return {
+            type: "group",
+            children: [
+              {
+                type: "line",
+                shape: { x1: baseline[0], y1: baseline[1], x2: top[0], y2: top[1] },
+                style: { stroke: color, lineWidth: 1.5 },
+                emphasis: { style: { lineWidth: 3 } },
+              },
+              ...(options.labels === false
+                ? []
+                : [
+                    {
+                      type: "text" as const,
+                      silent: true,
+                      style: {
+                        x: top[0],
+                        y: top[1]! - 7,
+                        text: Number(mz.toFixed(4)).toString(),
+                        fill: color,
+                        fontSize: 12,
+                        align: "center" as const,
+                        verticalAlign: "bottom" as const,
+                      },
+                    },
+                  ]),
+            ],
+          };
         },
       },
-    },
+    ],
     tooltip: {
-      use: spectrumTooltip,
-      anchor: { x: "value", y: "value" },
-      placement: "top",
-      offset: 16,
-      items: [
-        { field: "mz", label: xLabel, text: (point) => point.datum.mz.toString() },
-        {
-          field: "relativeIntensity",
-          label: "Relative intensity",
-          text: (point) => {
-            const intensity = point.datum.relativeIntensity;
-            return `${intensity > 0 && intensity < 0.01 ? intensity.toExponential(2) : intensity.toFixed(2)}%`;
-          },
-        },
-      ],
+      trigger: "axis",
+      confine: true,
+      formatter: (params) => {
+        const point = Array.isArray(params) ? params[0] : params;
+        const peak = point && data[point.dataIndex];
+        if (!peak) throw new RangeError("Spectrum tooltip peak is out of range.");
+        return createSpectrumTooltip(peak, xLabel);
+      },
     },
-  });
+  };
 }
