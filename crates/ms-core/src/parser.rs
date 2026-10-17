@@ -12,6 +12,8 @@ use crate::{
 #[grammar = "src/formula.pest"]
 struct FormulaParser;
 
+static LIGAND_FORMULAS: &[(&str, &str)] = &[("Me", "CH3"), ("Et", "C2H5"), ("Bu", "C4H9")];
+
 #[derive(Debug)]
 pub enum FormulaParseError {
     Syntax(pest::error::Error<Rule>),
@@ -206,14 +208,36 @@ fn append_atom_count(
         }
     }
 
-    atoms.push(ParsedAtom {
+    let atom = ParsedAtom {
         symbol: symbol
             .expect("each atom_count contains an element")
             .to_owned(),
         mass_number,
         count,
-    });
+    };
+    if atom.mass_number.is_none() {
+        if let Some(expansion) = ligand_formula(&atom.symbol) {
+            let mut expanded_atoms = parse_components(expansion)?;
+            for expanded_atom in &mut expanded_atoms {
+                expanded_atom.count =
+                    expanded_atom.count.checked_mul(atom.count).ok_or_else(|| {
+                        FormulaParseError::CountOverflow {
+                            symbol: expanded_atom.symbol.clone(),
+                        }
+                    })?;
+            }
+            atoms.extend(expanded_atoms);
+            return Ok(());
+        }
+    }
+    atoms.push(atom);
     Ok(())
+}
+
+fn ligand_formula(alias: &str) -> Option<&'static str> {
+    LIGAND_FORMULAS
+        .iter()
+        .find_map(|(name, formula)| (*name == alias).then_some(*formula))
 }
 
 fn append_group(
@@ -335,6 +359,28 @@ mod tests {
         assert_eq!(formula.atom_counts()[1].count, 2);
         assert_eq!(formula.atom_counts()[2].atom.symbol(), "H");
         assert_eq!(formula.atom_counts()[2].count, 2);
+    }
+
+    #[test]
+    fn expands_builtin_ligand_aliases() {
+        let formula = Formula::parse("MeEtBu").unwrap();
+        assert_eq!(formula.atom_counts().len(), 2);
+        assert_eq!(formula.atom_counts()[0].atom.symbol(), "C");
+        assert_eq!(formula.atom_counts()[0].count, 7);
+        assert_eq!(formula.atom_counts()[1].atom.symbol(), "H");
+        assert_eq!(formula.atom_counts()[1].count, 17);
+
+        let grouped = Formula::parse("(Me)2").unwrap();
+        assert_eq!(grouped.atom_counts()[0].count, 2);
+        assert_eq!(grouped.atom_counts()[1].count, 6);
+    }    
+
+    #[test]
+    fn reports_overflow_when_multiplying_a_ligand_alias() {
+        assert!(matches!(
+            Formula::parse("Me2147483647"),
+            Err(FormulaParseError::CountOverflow { symbol }) if symbol == "H"
+        ));
     }
 
     #[test]
