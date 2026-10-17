@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt};
 
-use pest::Parser;
+use pest::{Parser, iterators::Pair};
 use pest_derive::Parser;
 
 use crate::{
@@ -67,9 +67,15 @@ impl Error for FormulaParseError {
 }
 
 pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
+    let atoms = parse_components(input)?;
+    let atoms = combine_repeated_atoms(atoms)?;
+    Formula::from_atom_counts(resolve_atoms(atoms)?)
+}
+
+fn parse_components(input: &str) -> Result<Vec<ParsedAtom>, FormulaParseError> {
     let mut parsed =
         FormulaParser::parse(Rule::formula, input).map_err(FormulaParseError::Syntax)?;
-    let formula_pair = parsed.next().ok_or_else(|| {
+    let formula = parsed.next().ok_or_else(|| {
         FormulaParseError::Syntax(pest::error::Error::new_from_pos(
             pest::error::ErrorVariant::CustomError {
                 message: "formula was empty".to_owned(),
@@ -78,76 +84,91 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
         ))
     })?;
 
-    let mut expanded_atoms: Vec<ParsedAtom> = Vec::new();
-    for component in formula_pair.into_inner() {
-        if component.as_rule() == Rule::component {
-            append_component(component, &mut expanded_atoms)?;
-        }
+    let mut atoms = Vec::new();
+    for component in formula
+        .into_inner()
+        .filter(|pair| pair.as_rule() == Rule::component)
+    {
+        append_component(component, &mut atoms)?;
     }
+    Ok(atoms)
+}
 
-    let mut parsed_atoms: Vec<ParsedAtom> = Vec::new();
+fn combine_repeated_atoms(atoms: Vec<ParsedAtom>) -> Result<Vec<ParsedAtom>, FormulaParseError> {
+    let mut combined_atoms: Vec<ParsedAtom> = Vec::new();
     let mut atom_indices: HashMap<(String, Option<u16>), usize> = HashMap::new();
-    for parsed_atom in expanded_atoms {
-        let key = (parsed_atom.symbol.clone(), parsed_atom.mass_number);
+    for atom in atoms {
+        let key = (atom.symbol.clone(), atom.mass_number);
         if let Some(&index) = atom_indices.get(&key) {
-            parsed_atoms[index].count = parsed_atoms[index]
+            combined_atoms[index].count = combined_atoms[index]
                 .count
-                .checked_add(parsed_atom.count)
+                .checked_add(atom.count)
                 .ok_or_else(|| FormulaParseError::CountOverflow {
-                    symbol: parsed_atom.symbol.clone(),
+                    symbol: atom.symbol.clone(),
                 })?;
         } else {
-            atom_indices.insert(key, parsed_atoms.len());
-            parsed_atoms.push(parsed_atom);
+            atom_indices.insert(key, combined_atoms.len());
+            combined_atoms.push(atom);
         }
     }
+    Ok(combined_atoms)
+}
 
-    let mut atoms = Vec::with_capacity(parsed_atoms.len());
+fn resolve_atoms(atoms: Vec<ParsedAtom>) -> Result<Vec<AtomCount>, FormulaParseError> {
+    let mut resolved_atoms = Vec::with_capacity(atoms.len());
     let mut atomic_numbers = HashMap::new();
-    for parsed_atom in parsed_atoms {
-        let isotope_was_specified = parsed_atom.mass_number.is_some();
-        let isotope = match parsed_atom.mass_number {
-            Some(mass_number) => {
-                let atomic_number = cached_atomic_number(&parsed_atom.symbol, &mut atomic_numbers)
-                    .ok_or_else(|| FormulaParseError::UnknownElement {
-                        symbol: parsed_atom.symbol.clone(),
-                    })?;
-                let id = IsotopeId {
-                    atomic_number,
-                    mass_number,
-                };
-                if isotope_data(id).is_none() {
-                    return Err(FormulaParseError::UnknownIsotope {
-                        symbol: parsed_atom.symbol,
-                        mass_number,
-                    });
-                }
-                id
-            }
-            None => most_abundant_isotope(&parsed_atom.symbol).ok_or_else(|| {
-                if cached_atomic_number(&parsed_atom.symbol, &mut atomic_numbers).is_some() {
-                    FormulaParseError::NoMostAbundantIsotope {
-                        symbol: parsed_atom.symbol.clone(),
-                    }
-                } else {
-                    FormulaParseError::UnknownElement {
-                        symbol: parsed_atom.symbol.clone(),
-                    }
-                }
-            })?,
-        };
-
-        atoms.push(AtomCount {
+    for atom in atoms {
+        let (isotope, isotope_was_specified) = resolve_isotope(&atom, &mut atomic_numbers)?;
+        resolved_atoms.push(AtomCount {
             atom: Atom::from_isotope_id(isotope, isotope_was_specified),
-            count: parsed_atom.count,
+            count: atom.count,
         });
     }
+    Ok(resolved_atoms)
+}
 
-    Formula::from_atom_counts(atoms)
+fn resolve_isotope(
+    atom: &ParsedAtom,
+    atomic_numbers: &mut HashMap<String, Option<u8>>,
+) -> Result<(IsotopeId, bool), FormulaParseError> {
+    let isotope_was_specified = atom.mass_number.is_some();
+    let isotope = match atom.mass_number {
+        Some(mass_number) => {
+            let atomic_number =
+                cached_atomic_number(&atom.symbol, atomic_numbers).ok_or_else(|| {
+                    FormulaParseError::UnknownElement {
+                        symbol: atom.symbol.clone(),
+                    }
+                })?;
+            let id = IsotopeId {
+                atomic_number,
+                mass_number,
+            };
+            if isotope_data(id).is_none() {
+                return Err(FormulaParseError::UnknownIsotope {
+                    symbol: atom.symbol.clone(),
+                    mass_number,
+                });
+            }
+            id
+        }
+        None => most_abundant_isotope(&atom.symbol).ok_or_else(|| {
+            if cached_atomic_number(&atom.symbol, atomic_numbers).is_some() {
+                FormulaParseError::NoMostAbundantIsotope {
+                    symbol: atom.symbol.clone(),
+                }
+            } else {
+                FormulaParseError::UnknownElement {
+                    symbol: atom.symbol.clone(),
+                }
+            }
+        })?,
+    };
+    Ok((isotope, isotope_was_specified))
 }
 
 fn append_component(
-    component: pest::iterators::Pair<'_, Rule>,
+    component: Pair<'_, Rule>,
     atoms: &mut Vec<ParsedAtom>,
 ) -> Result<(), FormulaParseError> {
     let inner = component
@@ -155,53 +176,68 @@ fn append_component(
         .next()
         .expect("component is not empty");
     match inner.as_rule() {
-        Rule::atom_count => {
-            let mut symbol = None;
-            let mut mass_number = None;
-            let mut count = 1;
-            for part in inner.into_inner() {
-                match part.as_rule() {
-                    Rule::isotope => {
-                        let value = part.as_str().trim_start_matches('^');
-                        mass_number = Some(value.parse::<u16>().map_err(|_| {
-                            FormulaParseError::InvalidIsotopeNumber(value.to_owned())
-                        })?);
-                    }
-                    Rule::element => symbol = Some(part.as_str()),
-                    Rule::number => count = parse_count(part.as_str())?,
-                    _ => unreachable!("grammar only produces isotope, element, and number here"),
-                }
-            }
-
-            atoms.push(ParsedAtom {
-                symbol: symbol
-                    .expect("each atom_count contains an element")
-                    .to_owned(),
-                mass_number,
-                count,
-            });
-        }
-        Rule::group => {
-            let mut group_atoms = Vec::new();
-            let mut multiplier = 1;
-            for part in inner.into_inner() {
-                match part.as_rule() {
-                    Rule::component => append_component(part, &mut group_atoms)?,
-                    Rule::number => multiplier = parse_count(part.as_str())?,
-                    _ => unreachable!("grammar only produces components and a number in a group"),
-                }
-            }
-            for atom in &mut group_atoms {
-                atom.count = atom.count.checked_mul(multiplier).ok_or_else(|| {
-                    FormulaParseError::CountOverflow {
-                        symbol: atom.symbol.clone(),
-                    }
-                })?;
-            }
-            atoms.extend(group_atoms);
-        }
+        Rule::atom_count => append_atom_count(inner, atoms)?,
+        Rule::group => append_group(inner, atoms)?,
         _ => unreachable!("grammar only produces groups and atom counts in a component"),
     }
+    Ok(())
+}
+
+fn append_atom_count(
+    atom_count: Pair<'_, Rule>,
+    atoms: &mut Vec<ParsedAtom>,
+) -> Result<(), FormulaParseError> {
+    let mut symbol = None;
+    let mut mass_number = None;
+    let mut count = 1;
+    for part in atom_count.into_inner() {
+        match part.as_rule() {
+            Rule::isotope => {
+                let value = part.as_str().trim_start_matches('^');
+                mass_number = Some(
+                    value
+                        .parse::<u16>()
+                        .map_err(|_| FormulaParseError::InvalidIsotopeNumber(value.to_owned()))?,
+                );
+            }
+            Rule::element => symbol = Some(part.as_str()),
+            Rule::number => count = parse_count(part.as_str())?,
+            _ => unreachable!("grammar only produces isotope, element, and number here"),
+        }
+    }
+
+    atoms.push(ParsedAtom {
+        symbol: symbol
+            .expect("each atom_count contains an element")
+            .to_owned(),
+        mass_number,
+        count,
+    });
+    Ok(())
+}
+
+fn append_group(
+    group: Pair<'_, Rule>,
+    atoms: &mut Vec<ParsedAtom>,
+) -> Result<(), FormulaParseError> {
+    let mut group_atoms = Vec::new();
+    let mut multiplier = 1;
+    for part in group.into_inner() {
+        match part.as_rule() {
+            Rule::component => append_component(part, &mut group_atoms)?,
+            Rule::number => multiplier = parse_count(part.as_str())?,
+            _ => unreachable!("grammar only produces components and a number in a group"),
+        }
+    }
+    for atom in &mut group_atoms {
+        atom.count =
+            atom.count
+                .checked_mul(multiplier)
+                .ok_or_else(|| FormulaParseError::CountOverflow {
+                    symbol: atom.symbol.clone(),
+                })?;
+    }
+    atoms.extend(group_atoms);
     Ok(())
 }
 
