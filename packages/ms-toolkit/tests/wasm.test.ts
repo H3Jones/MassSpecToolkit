@@ -47,6 +47,27 @@ describe("wasm api", () => {
     expect(result.mass_difference).toBe(0);
   });
 
+  it("calculates fine isotope peaks and corrects their masses for charge", async () => {
+    const neutral = await api.fineIsotopeDistribution("C2H6O", 0);
+    const protonated = await api.fineIsotopeDistribution("C2H6O", 1);
+    const deprotonated = await api.fineIsotopeDistribution("C2H6O", -1);
+    const doublyCharged = await api.fineIsotopeDistribution("C2H6O", 2);
+
+    expect(neutral.peaks).toHaveLength(63);
+    expect(neutral.peaks[0]?.label).toBe("12C2 1H6 16O");
+    expect(neutral.peaks[0]?.mass_to_charge).toBeNull();
+    expect(neutral.retained_probability).toBeGreaterThanOrEqual(0.9999 - 1e-12);
+    expect(protonated.peaks).toHaveLength(neutral.peaks.length);
+    expect(protonated.peaks[0]?.mass).toBeCloseTo(neutral.peaks[0]!.mass - 0.000548579909065, 12);
+    expect(protonated.peaks[0]?.mass_to_charge).toBe(protonated.peaks[0]?.mass);
+    expect(protonated.peaks[0]?.abundance).toBe(neutral.peaks[0]?.abundance);
+    expect(deprotonated.peaks[0]?.mass).toBeCloseTo(neutral.peaks[0]!.mass + 0.000548579909065, 12);
+    expect(doublyCharged.peaks[0]?.mass_to_charge).toBeCloseTo(
+      doublyCharged.peaks[0]!.mass / 2,
+      12,
+    );
+  });
+
   it("rejects invalid formulas", async () => {
     await expect(api.parseFormula("((")).rejects.toBeInstanceOf(Error);
   });

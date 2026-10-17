@@ -18,6 +18,7 @@ export default defineConfig({
     entry: {
       index: src("index.ts"),
       core: src("core/index.ts"),
+      "fine-isotope-structure": src("elements/fine-isotope-structure.ts"),
       "ion-calculator": src("elements/ion-calculator.ts"),
       "mass-split": src("elements/mass-split.ts"),
       "mass-spectrum": src("elements/mass-spectrum.ts"),

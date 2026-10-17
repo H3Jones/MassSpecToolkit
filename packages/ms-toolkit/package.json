@@ -20,6 +20,10 @@
       "types": "./dist/ion-calculator.d.mts",
       "import": "./dist/ion-calculator.mjs"
     },
+    "./fine-isotope-structure": {
+      "types": "./dist/fine-isotope-structure.d.mts",
+      "import": "./dist/fine-isotope-structure.mjs"
+    },
     "./mass-split": {
       "types": "./dist/mass-split.d.mts",
       "import": "./dist/mass-split.mjs"

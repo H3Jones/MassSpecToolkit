@@ -1,5 +1,15 @@
-import init, { evaluate_ion, mass_split, parse_formula } from "../generated/wasm/ms_wasm.js";
-import type { FormulaResult, IonResult, MassSplitResult } from "./types.ts";
+import init, {
+  evaluate_ion,
+  fine_isotope_distribution,
+  mass_split,
+  parse_formula,
+} from "../generated/wasm/ms_wasm.js";
+import type {
+  FineIsotopeDistributionResult,
+  FormulaResult,
+  IonResult,
+  MassSplitResult,
+} from "./types.ts";
 
 let ready: Promise<unknown> | undefined;
 
@@ -36,6 +46,18 @@ export const api = {
     await ensureInit();
     try {
       return mass_split(formulaA, formulaB);
+    } catch (error) {
+      throw toError(error);
+    }
+  },
+
+  async fineIsotopeDistribution(
+    input: string,
+    charge: number,
+  ): Promise<FineIsotopeDistributionResult> {
+    await ensureInit();
+    try {
+      return fine_isotope_distribution(input, charge);
     } catch (error) {
       throw toError(error);
     }

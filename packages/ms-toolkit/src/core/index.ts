@@ -1,7 +1,14 @@
 import { wrap, type Remote } from "comlink";
 import type { MsApi } from "./wasm.ts";
 
-export type { AtomCount, FormulaResult, IonResult, MassSplitResult } from "./types.ts";
+export type {
+  AtomCount,
+  FineIsotopeDistributionResult,
+  FineIsotopePeakResult,
+  FormulaResult,
+  IonResult,
+  MassSplitResult,
+} from "./types.ts";
 export type { MsApi } from "./wasm.ts";
 export {
   formatAtomHtml,

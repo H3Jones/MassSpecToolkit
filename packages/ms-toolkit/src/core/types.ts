@@ -1,5 +1,7 @@
 export type {
   AtomCount,
+  FineIsotopeDistributionResult,
+  FineIsotopePeakResult,
   FormulaResult,
   IonResult,
   MassSplitResult,

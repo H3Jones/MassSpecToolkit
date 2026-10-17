@@ -20,6 +20,13 @@ pub struct IsotopeCount {
     pub count: u64,
 }
 
+/// Sorts isotope counts in the same order used for chemical formulas.
+pub fn sort_isotope_counts_by_hill_order(composition: &mut [IsotopeCount]) {
+    composition.sort_by_key(|entry| {
+        crate::formula::hill_order(Atom::from_isotope_id(entry.isotope, false))
+    });
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct FineIsotopePeak {
     pub nominal_mass: u64,

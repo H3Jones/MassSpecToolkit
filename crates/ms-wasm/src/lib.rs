@@ -1,5 +1,11 @@
 use ms_core::formula::Formula;
 use ms_core::ion::{Charge, Ion};
+use ms_core::isotopes::{
+    FineIsotopeDistributionOptions,
+    fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
+    sort_isotope_counts_by_hill_order,
+};
+use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use serde::Serialize;
 use tsify::{Ts, Tsify};
 use wasm_bindgen::JsError;
@@ -35,6 +41,22 @@ pub struct MassSplitResult {
 }
 
 #[derive(Serialize, Tsify)]
+pub struct FineIsotopePeakResult {
+    label: String,
+    mass: f64,
+    mass_to_charge: Option<f64>,
+    abundance: f64,
+}
+
+#[derive(Serialize, Tsify)]
+#[tsify(missing_as_null)]
+pub struct FineIsotopeDistributionResult {
+    charge: i32,
+    retained_probability: f64,
+    peaks: Vec<FineIsotopePeakResult>,
+}
+
+#[derive(Serialize, Tsify)]
 struct AtomCount {
     symbol: &'static str,
     mass_number: u16,
@@ -67,6 +89,62 @@ pub fn evaluate_ion(input: &str, charge: i32) -> Result<Ts<IonResult>, JsError> 
         dbe: formula_result.dbe,
         mass_to_charge: (charge != 0).then(|| ion.mass_to_charge()),
         atom_counts: formula_result.atom_counts,
+    };
+
+    Ok(result.into_ts()?)
+}
+
+/// Calculates a fine-structure isotope distribution and applies electron-mass correction for charge.
+#[wasm_bindgen]
+pub fn fine_isotope_distribution(
+    input: &str,
+    charge: i32,
+) -> Result<Ts<FineIsotopeDistributionResult>, JsError> {
+    Charge::try_from(charge).map_err(JsError::new)?;
+    let formula = Formula::parse(input).map_err(|error| JsError::new(&error.to_string()))?;
+    let distribution = calculate_fine_isotope_distribution(
+        &formula,
+        FineIsotopeDistributionOptions {
+            coverage: 1.0,
+            ..FineIsotopeDistributionOptions::default()
+        },
+    )
+    .map_err(|error| JsError::new(&error.to_string()))?;
+    let peaks = distribution
+        .peaks
+        .into_iter()
+        .map(|mut peak| {
+            sort_isotope_counts_by_hill_order(&mut peak.composition);
+            let label = peak
+                .composition
+                .iter()
+                .map(|entry| {
+                    let isotope = isotope_data(IsotopeId {
+                        atomic_number: entry.isotope.atomic_number,
+                        mass_number: entry.isotope.mass_number,
+                    })
+                    .expect("isotope compositions only contain known isotope ids");
+                    if entry.count == 1 {
+                        isotope.isotope_symbol()
+                    } else {
+                        format!("{}{}", isotope.isotope_symbol(), entry.count)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let mass = peak.mass - f64::from(charge) * ELECTRON_MASS;
+            FineIsotopePeakResult {
+                label,
+                mass,
+                mass_to_charge: (charge != 0).then(|| mass / f64::from(charge.unsigned_abs())),
+                abundance: peak.abundance,
+            }
+        })
+        .collect();
+    let result = FineIsotopeDistributionResult {
+        charge,
+        retained_probability: distribution.retained_probability,
+        peaks,
     };
 
     Ok(result.into_ts()?)

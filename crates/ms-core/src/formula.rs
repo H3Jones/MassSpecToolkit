@@ -97,7 +97,7 @@ fn is_valid_formula(atom_counts: &[AtomCount]) -> bool {
     !atom_counts.is_empty() && atom_counts.iter().all(|ac| ac.count > 0)
 }
 
-fn hill_order(atom: Atom) -> (u8, &'static str, u16, bool) {
+pub(crate) fn hill_order(atom: Atom) -> (u8, &'static str, u16, bool) {
     let symbol = atom.symbol();
     let priority = match symbol {
         "C" => 0,
@@ -174,12 +174,11 @@ impl Formula {
     }
 
     /// Calculates the double bond equivalent (DBE) of the formula.
-    /// 
+    ///
     /// This is given by the formula: DBE = (2C + 2 + N - H - X) / 2
     /// where C, H, N are the counts of carbon, hydrogen, and nitrogen atoms, respectively,
     /// and X is the total count of halogen atoms (F, Cl, Br, I).
     pub fn dbe(&self) -> f64 {
-
         let (mut c, mut h, mut n, mut halogen_count) = (0, 0, 0, 0);
         for ac in &self.atom_counts {
             match ac.atom.symbol() {

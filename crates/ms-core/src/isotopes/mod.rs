@@ -5,7 +5,7 @@ mod distribution;
 pub use distribution::{
     FineIsotopeDistribution, FineIsotopeDistributionOptions, FineIsotopePeak, IsotopeCount,
     IsotopeDistributionError, IsotopePeak, fine_isotope_distribution, nominal_isotope_distribution,
-    theoretical_isotopologues,
+    sort_isotope_counts_by_hill_order, theoretical_isotopologues,
 };
 
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,57 @@ pub fn most_abundant_isotope(symbol: &str) -> Option<IsotopeId> {
 mod tests {
     use super::*;
     use crate::test_support::C_12_MASS;
+
+    #[test]
+    fn sorts_fine_isotope_compositions_in_hill_order() {
+        let mut composition = vec![
+            IsotopeCount {
+                isotope: IsotopeId {
+                    atomic_number: 8,
+                    mass_number: 16,
+                },
+                count: 1,
+            },
+            IsotopeCount {
+                isotope: IsotopeId {
+                    atomic_number: 1,
+                    mass_number: 2,
+                },
+                count: 1,
+            },
+            IsotopeCount {
+                isotope: IsotopeId {
+                    atomic_number: 6,
+                    mass_number: 13,
+                },
+                count: 1,
+            },
+            IsotopeCount {
+                isotope: IsotopeId {
+                    atomic_number: 1,
+                    mass_number: 1,
+                },
+                count: 1,
+            },
+            IsotopeCount {
+                isotope: IsotopeId {
+                    atomic_number: 6,
+                    mass_number: 12,
+                },
+                count: 1,
+            },
+        ];
+
+        sort_isotope_counts_by_hill_order(&mut composition);
+
+        assert_eq!(
+            composition
+                .iter()
+                .map(|entry| (entry.isotope.atomic_number, entry.isotope.mass_number))
+                .collect::<Vec<_>>(),
+            [(6, 12), (6, 13), (1, 1), (1, 2), (8, 16)]
+        );
+    }
 
     #[test]
     fn formats_isotope_symbols_with_the_mass_number() {
