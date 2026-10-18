@@ -1,0 +1,34 @@
+:host {
+  display: block;
+  font: inherit;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+input,
+button {
+  box-sizing: border-box;
+  height: 2.25rem;
+  font: inherit;
+}
+
+input {
+  padding: 0.4rem;
+}
+
+button {
+  padding: 0.45rem 1rem;
+}
+
+.error {
+  color: #b91c1c;
+}

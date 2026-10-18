@@ -8,22 +8,23 @@ import type { MsMassSpectrum } from "./mass-spectrum.ts";
 import type { MsTable, MsTableColumn } from "./table.ts";
 import "./mass-spectrum.ts";
 import "./table.ts";
+import commonUiStyles from "./common-ui.css?inline";
 
 type DisplayPeak = { label: string; mass: number; mz: number | null; int: number };
 
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
-    :host { display: block; min-width: 0; font: inherit; }
-    form { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; margin-bottom: 1rem; }
-    label { display: grid; gap: 0.25rem; font-size: 0.9em; }
-    input { width: 100%; min-width: 8rem; padding: 0.45rem; font: inherit; }
-    button { padding: 0.5rem 0.9rem; font: inherit; }
+    ${commonUiStyles}
+    :host { min-width: 0; }
+    form { gap: 0.75rem; margin-bottom: 1rem; }
+    label { font-size: 0.9em; }
+    input { width: 100%; min-width: 8rem; }
     .output { display: grid; gap: 1rem; }
     .summary { margin: 0; color: #64748b; font-size: 0.9em; }
     ms-mass-spectrum { display: block; min-height: 360px; }
     ms-table { display: block; max-width: 100%; overflow-x: auto; }
-    .error { margin: 0; color: #b91c1c; }
+    .error { margin: 0; }
     [hidden] { display: none !important; }
   </style>
   <form part="form">

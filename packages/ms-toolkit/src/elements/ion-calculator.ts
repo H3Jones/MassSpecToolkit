@@ -1,14 +1,12 @@
 import { formatAtomHtml, formatFormulaHtml, getClient, type IonResult } from "../core/index.ts";
+import commonUiStyles from "./common-ui.css?inline";
 
 const template = document.createElement("template");
 template.innerHTML = `
   <style>
-    :host { display: block; font: inherit; }
-    form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
-    label { display: grid; gap: 0.25rem; font-size: 0.85em; }
-    input { padding: 0.4rem; font: inherit; }
-    button { padding: 0.45rem 1rem; font: inherit; }
-    .error { color: #b91c1c; }
+    ${commonUiStyles}
+    form { gap: 0.5rem; }
+    label { font-size: 0.85em; }
     .summary { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 0.5rem; margin: 1rem 0 0; }
     .summary dt { font-weight: 600; }
     .summary dd { margin: 0; }
