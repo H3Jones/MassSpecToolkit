@@ -1,7 +1,7 @@
 use ms_core::formula::{Formula, sort_by_hill_order};
 use ms_core::ion::{Charge, Ion};
 use ms_core::isotopes::{
-    FineIsotopeDistributionOptions,
+    FineIsotopeDistributionOptions, IsotopeDistributionError,
     fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
 };
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
@@ -101,14 +101,31 @@ pub fn fine_isotope_distribution(
 ) -> Result<Ts<FineIsotopeDistributionResult>, JsError> {
     Charge::try_from(charge).map_err(JsError::new)?;
     let formula = Formula::parse(input).map_err(|error| JsError::new(&error.to_string()))?;
-    let distribution = calculate_fine_isotope_distribution(
-        &formula,
-        FineIsotopeDistributionOptions {
-            coverage: 1.0,
-            ..FineIsotopeDistributionOptions::default()
-        },
-    )
-    .map_err(|error| JsError::new(&error.to_string()))?;
+    let mut distribution = None;
+    let mut state_limit_error = None;
+    for coverage in [1.0, 0.9999, 0.999, 0.99] {
+        match calculate_fine_isotope_distribution(
+            &formula,
+            FineIsotopeDistributionOptions {
+                coverage,
+                ..FineIsotopeDistributionOptions::default()
+            },
+        ) {
+            Ok(result) => {
+                distribution = Some(result);
+                break;
+            }
+            Err(error @ IsotopeDistributionError::StateLimitExceeded { .. }) => {
+                state_limit_error = Some(error);
+            }
+            Err(error) => return Err(JsError::new(&error.to_string())),
+        }
+    }
+    let distribution = match (distribution, state_limit_error) {
+        (Some(result), _) => result,
+        (None, Some(error)) => return Err(JsError::new(&error.to_string())),
+        (None, None) => return Err(JsError::new("no isotope coverage targets configured")),
+    };
     let peaks = distribution
         .peaks
         .into_iter()

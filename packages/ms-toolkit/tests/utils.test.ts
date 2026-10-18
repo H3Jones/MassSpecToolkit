@@ -39,6 +39,16 @@ describe("formula HTML formatters", () => {
       expect(() => renormalizeIntensities([])).toThrow("positive intensity");
       expect(() => renormalizeIntensities([{ int: 0 }])).toThrow("positive intensity");
     });
+
+    it("normalizes arrays larger than the JavaScript argument limit", () => {
+      const peaks = Array.from({ length: 160_146 }, (_, index) => ({ int: index + 1 }));
+
+      const normalized = renormalizeIntensities(peaks);
+
+      expect(normalized).toHaveLength(peaks.length);
+      expect(normalized[0]?.int).toBeCloseTo(100 / peaks.length, 10);
+      expect(normalized.at(-1)?.int).toBe(100);
+    });
   });
 
   describe("isotope label HTML formatter", () => {

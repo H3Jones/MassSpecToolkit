@@ -68,6 +68,21 @@ describe("wasm api", () => {
     );
   });
 
+  it("calculates exhaustive isotope peaks for C2H6O122", async () => {
+    const result = await api.fineIsotopeDistribution("C2H6O122", 0);
+
+    expect(result.peaks).toHaveLength(160_146);
+    expect(result.retained_probability).toBeCloseTo(1, 12);
+  });
+
+  it("lowers isotope coverage only when exact states exceed the cap", async () => {
+    const result = await api.fineIsotopeDistribution("C2H6O300", 0);
+
+    expect(result.retained_probability).toBeGreaterThanOrEqual(0.9999 - 1e-12);
+    expect(result.retained_probability).toBeLessThan(1);
+    expect(result.peaks.length).toBeLessThan(200_000);
+  });
+
   it("rejects invalid formulas", async () => {
     await expect(api.parseFormula("((")).rejects.toBeInstanceOf(Error);
   });

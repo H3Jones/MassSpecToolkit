@@ -133,9 +133,12 @@ export class MsFineIsotopeStructure extends HTMLElement {
     const tablePeaks: DisplayPeak[] = renormalizeIntensities(
       peaks.map((peak) => ({ ...peak, mz: peak.mz ?? peak.mass })),
     );
-    const coordinates = chartPeaks.map((peak) => peak.mz);
-    const minimum = Math.min(...coordinates);
-    const maximum = Math.max(...coordinates);
+    let minimum = Number.POSITIVE_INFINITY;
+    let maximum = Number.NEGATIVE_INFINITY;
+    for (const peak of chartPeaks) {
+      minimum = Math.min(minimum, peak.mz);
+      maximum = Math.max(maximum, peak.mz);
+    }
     const padding = Math.max((maximum - minimum) * 0.05, Math.abs(maximum) * 0.005);
     this.#spectrum.setAttribute("x-label", isIon ? "m/z" : "Mass (Da)");
     this.#spectrum.setAttribute("mz-min", String(Math.max(0, minimum - padding)));

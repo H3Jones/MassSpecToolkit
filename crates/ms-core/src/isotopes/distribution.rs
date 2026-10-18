@@ -72,7 +72,7 @@ impl Default for FineIsotopeDistributionOptions {
     fn default() -> Self {
         Self {
             coverage: 0.9999,
-            max_states: 100_000,
+            max_states: 200_000,
         }
     }
 }

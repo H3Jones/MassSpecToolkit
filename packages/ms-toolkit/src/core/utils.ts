@@ -57,7 +57,10 @@ export function formatFormulaHtml(atomCounts: readonly AtomCount[]): string {
 export function renormalizeIntensities<T extends { int: number }>(
   peaks: readonly T[],
 ): (Omit<T, "int"> & { int: number })[] {
-  const basePeakIntensity = Math.max(...peaks.map((peak) => peak.int));
+  let basePeakIntensity = Number.NEGATIVE_INFINITY;
+  for (const peak of peaks) {
+    basePeakIntensity = Math.max(basePeakIntensity, peak.int);
+  }
   if (!Number.isFinite(basePeakIntensity) || basePeakIntensity <= 0) {
     throw new RangeError("Peaks must include a positive intensity.");
   }

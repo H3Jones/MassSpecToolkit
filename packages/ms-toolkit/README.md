@@ -5,13 +5,13 @@ combines TypeScript web components with a Rust/WebAssembly calculation core.
 
 ## Components
 
-| Component | Import | Purpose |
-| --- | --- | --- |
-| `<ms-ion-calculator>` | `ms-toolkit/ion-calculator` | Calculate formula mass, m/z, and degree of unsaturation for a charged formula. |
+| Component                     | Import                              | Purpose                                                                                      |
+| ----------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| `<ms-ion-calculator>`         | `ms-toolkit/ion-calculator`         | Calculate formula mass, m/z, and degree of unsaturation for a charged formula.               |
 | `<ms-fine-isotope-structure>` | `ms-toolkit/fine-isotope-structure` | Calculate a formula's fine isotope distribution and display it as a spectrum and peak table. |
-| `<ms-mass-split>` | `ms-toolkit/mass-split` | Compare two formulas and show their unmatched components and mass difference. |
-| `<ms-mass-spectrum>` | `ms-toolkit/mass-spectrum` | Plot supplied centroid peaks as an interactive mass spectrum. |
-| `<ms-table>` | `ms-toolkit/table` | Display sortable, paginated data tables. |
+| `<ms-mass-split>`             | `ms-toolkit/mass-split`             | Compare two formulas and show their unmatched components and mass difference.                |
+| `<ms-mass-spectrum>`          | `ms-toolkit/mass-spectrum`          | Plot supplied centroid peaks as an interactive mass spectrum.                                |
+| `<ms-table>`                  | `ms-toolkit/table`                  | Display sortable, paginated data tables.                                                     |
 
 Import a component to register just that custom element. Importing
 `ms-toolkit` registers all components and also exports the chart and core
@@ -48,8 +48,10 @@ toolkit does not convert m/z values or apply adduct corrections.
 Calculations run through a shared Web Worker backed by WebAssembly.
 Calculation results are dispatched as bubbling `ms-result` events (the mass
 split component uses `ms-mass-split-result`); failures are displayed and
-dispatched as bubbling `ms-error` events. The isotope calculator retains the
-full distribution up to its 100,000-state limit.
+dispatched as bubbling `ms-error` events. Isotope calculations try full
+coverage first, then retry at 99.99%, 99.9%, and 99% if the 200,000-state cap
+is exceeded. The displayed retained probability indicates how much probability
+the returned distribution contains.
 
 ## Charts and helpers
 
