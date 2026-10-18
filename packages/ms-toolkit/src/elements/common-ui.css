@@ -26,6 +26,9 @@ input {
 }
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0.45rem 1rem;
 }
 
