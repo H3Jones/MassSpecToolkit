@@ -2,3 +2,8 @@
 target/
 node_modules/
 dist/
+
+# Python development and packaging
+.venv/
+__pycache__/
+*.egg-info/

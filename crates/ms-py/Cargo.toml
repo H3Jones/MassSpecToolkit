@@ -1,0 +1,12 @@
+[package]
+name = "ms-py"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "ms_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+ms-core = { path = "../ms-core" }
+pyo3 = { version = "0.27", features = ["abi3-py310"] }
