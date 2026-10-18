@@ -85,12 +85,15 @@ pub struct FineIsotopeDistribution {
     pub retained_probability: f64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub enum IsotopeDistributionError {
     ElementHasNoAbundanceData(&'static str),
     InvalidCoverage,
     InvalidMaxStates,
-    StateLimitExceeded { max_states: usize },
+    StateLimitExceeded {
+        max_states: usize,
+        achieved_coverage: f64,
+    },
     ProbabilityCoverageNotReached,
     TheoreticalIsotopologueCountOverflow,
 }
@@ -103,9 +106,13 @@ impl std::fmt::Display for IsotopeDistributionError {
             }
             Self::InvalidCoverage => write!(f, "coverage must be finite and in (0, 1]"),
             Self::InvalidMaxStates => write!(f, "max_states must be greater than zero"),
-            Self::StateLimitExceeded { max_states } => write!(
+            Self::StateLimitExceeded {
+                max_states,
+                achieved_coverage,
+            } => write!(
                 f,
-                "cannot meet isotope probability coverage within {max_states} states; increase max_states or reduce coverage"
+                "cannot meet isotope probability coverage within {max_states} states (best coverage at this step: {achieved_coverage:.6}, {:.2}%); increase max_states or reduce coverage",
+                achieved_coverage * 100.0
             ),
             Self::ProbabilityCoverageNotReached => {
                 write!(
@@ -471,8 +478,14 @@ fn prune_isotope_states(
             .map_or(states.len(), |index| index + 1)
     };
     if keep > options.max_states {
+        let achieved_coverage = states
+            .iter()
+            .take(options.max_states)
+            .map(|state| state.probability)
+            .sum();
         return Err(IsotopeDistributionError::StateLimitExceeded {
             max_states: options.max_states,
+            achieved_coverage,
         });
     }
     states.truncate(keep);
@@ -508,6 +521,32 @@ mod tests {
                 "{input}"
             );
         }
+    }
+
+    #[test]
+    fn state_limit_error_reports_best_coverage_within_limit() {
+        let mut states = vec![
+            IsotopeState::new(vec![0], 0.75),
+            IsotopeState::new(vec![1], 0.25),
+        ];
+        let error = prune_isotope_states(
+            &mut states,
+            1.0,
+            FineIsotopeDistributionOptions::new(1.0, 1),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            IsotopeDistributionError::StateLimitExceeded {
+                max_states: 1,
+                achieved_coverage: 0.75,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "cannot meet isotope probability coverage within 1 states (best coverage at this step: 0.750000, 75.00%); increase max_states or reduce coverage"
+        );
     }
 
     #[test]
@@ -953,15 +992,25 @@ mod tests {
             Err(IsotopeDistributionError::InvalidMaxStates)
         );
         for coverage in [0.9999, 1.0] {
-            assert_eq!(
-                fine_isotope_distribution(
-                    &formula,
-                    FineIsotopeDistributionOptions {
-                        coverage,
-                        max_states: 1,
-                    },
-                ),
-                Err(IsotopeDistributionError::StateLimitExceeded { max_states: 1 })
+            let error = fine_isotope_distribution(
+                &formula,
+                FineIsotopeDistributionOptions {
+                    coverage,
+                    max_states: 1,
+                },
+            )
+            .unwrap_err();
+            let IsotopeDistributionError::StateLimitExceeded {
+                max_states,
+                achieved_coverage,
+            } = error
+            else {
+                panic!("expected state limit error");
+            };
+            assert_eq!(max_states, 1);
+            assert!(
+                (achieved_coverage - 0.9893).abs() < 1e-12,
+                "reported achieved coverage: {achieved_coverage}"
             );
         }
         assert!(
