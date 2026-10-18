@@ -16,6 +16,9 @@ template.innerHTML = `
     <input id="formula-b" name="formulaB" value="C17H19" required>
     <button type="submit">Calculate difference</button>
   </form>
+  <p class="status" part="status" role="status" aria-live="polite" hidden>
+    <span class="spinner" aria-hidden="true"></span> Calculating formula difference...
+  </p>
   <div class="result" part="result" aria-live="polite"></div>
 `;
 
@@ -29,6 +32,8 @@ export class MsMassSplit extends HTMLElement {
   #form!: HTMLFormElement;
   #formulaA!: HTMLInputElement;
   #formulaB!: HTMLInputElement;
+  #status!: HTMLElement;
+  #submitButton!: HTMLButtonElement;
   #output!: HTMLElement;
   #run = 0;
 
@@ -39,6 +44,8 @@ export class MsMassSplit extends HTMLElement {
       this.#form = root.querySelector("form")!;
       this.#formulaA = root.querySelector<HTMLInputElement>("#formula-a")!;
       this.#formulaB = root.querySelector<HTMLInputElement>("#formula-b")!;
+      this.#status = root.querySelector("[part=status]")!;
+      this.#submitButton = this.#form.querySelector('button[type="submit"]')!;
       this.#output = root.querySelector<HTMLElement>("[part=result]")!;
       this.#form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -66,6 +73,7 @@ export class MsMassSplit extends HTMLElement {
 
   async calculate(): Promise<MassSplitResult | undefined> {
     const run = ++this.#run;
+    this.#setCalculating(true);
     try {
       const result = await getClient().massSplit(this.#formulaA.value, this.#formulaB.value);
       if (run !== this.#run) return undefined;
@@ -85,7 +93,14 @@ export class MsMassSplit extends HTMLElement {
       );
       this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
+    } finally {
+      if (run === this.#run) this.#setCalculating(false);
     }
+  }
+
+  #setCalculating(calculating: boolean): void {
+    this.#status.hidden = !calculating;
+    this.#submitButton.disabled = calculating;
   }
 
   #render(result: MassSplitResult): void {

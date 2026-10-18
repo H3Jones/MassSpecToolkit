@@ -34,6 +34,9 @@ template.innerHTML = `
     </label>
     <button type="submit">Calculate distribution</button>
   </form>
+  <p class="status" part="status" role="status" aria-live="polite" hidden>
+    <span class="spinner" aria-hidden="true"></span> Calculating isotope distribution...
+  </p>
   <p class="error" part="error" role="alert" hidden></p>
   <div class="output" part="output" hidden>
     <p class="summary" part="summary" aria-live="polite"></p>
@@ -53,6 +56,8 @@ export class MsFineIsotopeStructure extends HTMLElement {
   #form!: HTMLFormElement;
   #formula!: HTMLInputElement;
   #charge!: HTMLInputElement;
+  #status!: HTMLElement;
+  #submitButton!: HTMLButtonElement;
   #error!: HTMLElement;
   #output!: HTMLElement;
   #summary!: HTMLElement;
@@ -67,6 +72,8 @@ export class MsFineIsotopeStructure extends HTMLElement {
       this.#form = root.querySelector("form")!;
       this.#formula = this.#form.elements.namedItem("formula") as HTMLInputElement;
       this.#charge = this.#form.elements.namedItem("charge") as HTMLInputElement;
+      this.#status = root.querySelector("[part=status]")!;
+      this.#submitButton = this.#form.querySelector('button[type="submit"]')!;
       this.#error = root.querySelector("[part=error]")!;
       this.#output = root.querySelector("[part=output]")!;
       this.#summary = root.querySelector("[part=summary]")!;
@@ -96,6 +103,7 @@ export class MsFineIsotopeStructure extends HTMLElement {
 
   async calculate(): Promise<FineIsotopeDistributionResult | undefined> {
     const run = ++this.#run;
+    this.#setCalculating(true);
     const charge = this.#charge.value.trim() === "" ? 0 : this.#charge.valueAsNumber;
     try {
       if (!Number.isInteger(charge) || charge < -255 || charge > 255) {
@@ -114,7 +122,14 @@ export class MsFineIsotopeStructure extends HTMLElement {
       this.#output.hidden = true;
       this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
+    } finally {
+      if (run === this.#run) this.#setCalculating(false);
     }
+  }
+
+  #setCalculating(calculating: boolean): void {
+    this.#status.hidden = !calculating;
+    this.#submitButton.disabled = calculating;
   }
 
   #render(result: FineIsotopeDistributionResult): void {

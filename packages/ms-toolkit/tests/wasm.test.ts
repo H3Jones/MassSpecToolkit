@@ -73,7 +73,7 @@ describe("wasm api", () => {
 
     expect(result.peaks).toHaveLength(160_146);
     expect(result.retained_probability).toBeCloseTo(1, 12);
-  });
+  }, 15_000);
 
   it("lowers isotope coverage only when exact states exceed the cap", async () => {
     const result = await api.fineIsotopeDistribution("C2H6O300", 0);

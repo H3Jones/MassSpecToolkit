@@ -19,6 +19,9 @@ template.innerHTML = `
     <label>Charge <input name="charge" type="number" min="-255" max="255" step="1" value="1" required></label>
     <button type="submit">Calculate</button>
   </form>
+  <p class="status" part="status" role="status" aria-live="polite" hidden>
+    <span class="spinner" aria-hidden="true"></span> Calculating ion...
+  </p>
   <div part="result" aria-live="polite"></div>
 `;
 
@@ -30,6 +33,8 @@ export class MsIonCalculator extends HTMLElement {
   static observedAttributes = ["formula", "charge"];
 
   #form!: HTMLFormElement;
+  #status!: HTMLElement;
+  #submitButton!: HTMLButtonElement;
   #output!: HTMLElement;
   #run = 0;
 
@@ -38,6 +43,8 @@ export class MsIonCalculator extends HTMLElement {
       const root = this.attachShadow({ mode: "open" });
       root.append(template.content.cloneNode(true));
       this.#form = root.querySelector("form")!;
+      this.#status = root.querySelector("[part=status]")!;
+      this.#submitButton = this.#form.querySelector('button[type="submit"]')!;
       this.#output = root.querySelector("[part=result]")!;
       this.#form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -72,6 +79,7 @@ export class MsIonCalculator extends HTMLElement {
   async calculate(): Promise<IonResult | undefined> {
     const { formula, charge } = this.#inputs();
     const run = ++this.#run;
+    this.#setCalculating(true);
     try {
       const result = await getClient().evaluateIon(formula.value, charge.valueAsNumber);
       if (run !== this.#run) return undefined;
@@ -89,7 +97,14 @@ export class MsIonCalculator extends HTMLElement {
       );
       this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
+    } finally {
+      if (run === this.#run) this.#setCalculating(false);
     }
+  }
+
+  #setCalculating(calculating: boolean): void {
+    this.#status.hidden = !calculating;
+    this.#submitButton.disabled = calculating;
   }
 
   #render(result: IonResult): void {
