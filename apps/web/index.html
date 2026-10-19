@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta
+      name="description"
+      content="Mass spectrometry building blocks powered by Rust and WebAssembly. Explore molecular formulas, mass differences, and fine isotope structure with MassSpecToolkit."
+    />
+    <title>MassSpecToolkit | Built for the details</title>
+    <script>
+      try {
+        const theme = localStorage.getItem("mst-theme");
+        document.documentElement.classList.toggle(
+          "dark",
+          theme === "dark" ||
+            (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches),
+        );
+      } catch (error) {
+        console.warn("Unable to read theme preference; using system theme.", error);
+        document.documentElement.classList.toggle(
+          "dark",
+          matchMedia("(prefers-color-scheme: dark)").matches,
+        );
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript
+      >This site needs JavaScript. Explore the toolkit at
+      <a href="https://github.com/H3Jones/MassSpecToolkit">GitHub</a>.</noscript
+    >
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
