@@ -7,7 +7,9 @@
   ],
   "type": "module",
   "sideEffects": [
-    "./dist/*.mjs"
+    "./dist/*.mjs",
+    "./src/index.ts",
+    "./src/elements/*.ts"
   ],
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",

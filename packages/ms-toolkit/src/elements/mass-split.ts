@@ -11,10 +11,10 @@ template.innerHTML = `
   </style>
   <form part="form">
     <label for="formula-a">Formula A</label>
-    <input id="formula-a" name="formulaA" value="C14H23S" required>
+    <input part="input" id="formula-a" name="formulaA" value="C14H23S" required>
     <label for="formula-b">Formula B</label>
-    <input id="formula-b" name="formulaB" value="C17H19" required>
-    <button type="submit">Calculate difference</button>
+    <input part="input" id="formula-b" name="formulaB" value="C17H19" required>
+    <button part="button" type="submit">Calculate difference</button>
   </form>
   <p class="status" part="status" role="status" aria-live="polite" hidden>
     <span class="spinner" aria-hidden="true"></span> Calculating formula difference...
@@ -85,12 +85,13 @@ export class MsMassSplit extends HTMLElement {
     } catch (error) {
       if (run !== this.#run) return undefined;
       const err = error instanceof Error ? error : new Error(String(error));
-      this.#output.replaceChildren(
-        Object.assign(document.createElement("p"), {
-          className: "error",
-          textContent: err.message,
-        }),
-      );
+      const message = Object.assign(document.createElement("p"), {
+        className: "error",
+        role: "alert",
+        textContent: err.message,
+      });
+      message.part.add("error");
+      this.#output.replaceChildren(message);
       this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
     } finally {

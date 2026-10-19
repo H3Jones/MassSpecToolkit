@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "strict": true,
-    "paths": { "@/*": ["./src/*"] },
+    "paths": {
+      "@/*": ["./src/*"],
+      "ms-toolkit/*": ["../../packages/ms-toolkit/src/elements/*"]
+    },
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "es2023",
     "lib": ["ES2023", "DOM"],

@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
+    "predev": "npm run wasm",
+    "wasm": "npm --prefix ../../packages/ms-toolkit run wasm",
+    "prebuild": "npm run wasm",
     "build": "tsc -b && vp build",
+    "test": "vp test --run",
     "check": "vp check",
     "preview": "vp preview"
   },
@@ -14,6 +18,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.0",
     "lucide-react": "^1.59.0",
+    "ms-toolkit": "file:../../packages/ms-toolkit",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

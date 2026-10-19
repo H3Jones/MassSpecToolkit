@@ -49,6 +49,7 @@
 }
 
 :root {
+  color-scheme: light;
   --background: #fdfefe;
   --foreground: #0f172a;
   --card: oklch(1 0 0);
@@ -84,6 +85,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0b1120;
   --foreground: #f1f5f9;
   --card: #111b2e;
@@ -170,6 +172,61 @@
 
   .skip-link {
     @apply sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground;
+  }
+
+  .tool-element {
+    display: block;
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+
+  .tool-element::part(form) {
+    gap: 1rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tool-element::part(input) {
+    width: 12rem;
+    min-width: 0;
+    max-width: 100%;
+    height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  .tool-element::part(button) {
+    min-height: 2.5rem;
+    height: auto;
+    padding: 0.5rem 1rem;
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    cursor: pointer;
+  }
+
+  .tool-element::part(input):focus-visible,
+  .tool-element::part(button):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  .tool-element::part(result) {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .tool-element::part(status),
+  .tool-element::part(summary) {
+    color: var(--muted-foreground);
+  }
+
+  .tool-element::part(error) {
+    color: var(--destructive);
   }
 }
 

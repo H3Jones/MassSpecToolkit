@@ -28,11 +28,11 @@ template.innerHTML = `
     [hidden] { display: none !important; }
   </style>
   <form part="form">
-    <label>Formula <input name="formula" value="C2H6O" required></label>
+    <label>Formula <input part="input" name="formula" value="C2H6O" required></label>
     <label>Charge (optional)
-      <input name="charge" type="number" min="-255" max="255" step="1" value="" inputmode="numeric">
+      <input part="input" name="charge" type="number" min="-255" max="255" step="1" value="" inputmode="numeric">
     </label>
-    <button type="submit">Calculate distribution</button>
+    <button part="button" type="submit">Calculate distribution</button>
   </form>
   <p class="status" part="status" role="status" aria-live="polite" hidden>
     <span class="spinner" aria-hidden="true"></span> Calculating isotope distribution...
@@ -78,7 +78,7 @@ export class MsFineIsotopeStructure extends HTMLElement {
       this.#output = root.querySelector("[part=output]")!;
       this.#summary = root.querySelector("[part=summary]")!;
       this.#spectrum = root.querySelector("ms-mass-spectrum")!;
-      this.#table = root.querySelector("ms-table")!;
+      this.#table = root.querySelector<MsTable<DisplayPeak>>("ms-table")!;
       this.#form.addEventListener("submit", (event) => {
         event.preventDefault();
         void this.calculate();
@@ -137,7 +137,7 @@ export class MsFineIsotopeStructure extends HTMLElement {
     const peaks: DisplayPeak[] = result.peaks.map((peak) => ({
       label: peak.label,
       mass: peak.mass,
-      mz: peak.mass_to_charge,
+      mz: peak.mass_to_charge ?? null,
       int: peak.abundance,
     }));
     const chartPeaks = peaks.map((peak) => ({

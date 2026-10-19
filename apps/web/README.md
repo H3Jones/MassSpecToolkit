@@ -7,25 +7,37 @@ package and its development playground remain independent.
 ## Development
 
 Use a Node version supported by Vite+ 1.2: 22.18+, 24.11+, or 26+.
-From this directory:
+Install Rust, the `wasm32-unknown-unknown` target (`rustup target add
+wasm32-unknown-unknown`), and `wasm-pack` (`cargo install wasm-pack --locked`).
+Install the toolkit dependencies with `npm ci` in `packages/ms-toolkit`, then
+from this directory:
 
 ```sh
 npm ci
 npm run dev
 npm run check
+npm test
 npm run build
 npm run preview
 ```
 
 Open the server's `/MassSpecToolkit/` URL. `npm run check` runs Vite+ formatting,
-linting, and type checks; the production build also runs TypeScript.
+linting, and type checks; the production build also runs TypeScript. Both
+`npm run dev` and `npm run build` regenerate the toolkit's WASM bindings.
+`npm run wasm` runs that generation separately.
 
 ## Scope
 
-This first version is a landing page only. The spectrum is a labelled static
-illustration, not a calculator. Tool cards describe existing library features
-and explicitly mark dedicated tool pages as planned. Documentation and source
-links lead to the public repository.
+The landing page links to three working calculators:
+
+- `#/tools/ion-calculator`: formula mass, m/z, and degree of unsaturation.
+- `#/tools/mass-split`: unmatched components and signed mass difference.
+- `#/tools/fine-isotope-structure`: isotope distribution, spectrum, and peak table.
+
+Each page calculates an example on opening and allows the inputs to be edited.
+Instructions describe charge handling, units, and isotope coverage limits.
+Loading failures and calculation errors are displayed explicitly.
+The landing-page spectrum remains a labelled static illustration.
 
 The theme initially follows the operating system. The theme button switches
 between light and dark and remembers the selection in browser storage.
@@ -39,18 +51,28 @@ site in `dist`. No deployment workflow is included, and nothing is published
 automatically. Change `base` in [vite.config.ts](./vite.config.ts) if using a
 custom domain or a different repository name.
 
-Navigation currently uses in-page anchors, so it needs no SPA rewrite or
-server-side routing. Choose a Pages-compatible routing strategy before adding
-dedicated tool URLs.
+Calculator navigation uses hash routes, so direct links, refresh, and browser
+back/forward work on Pages without a server-side SPA rewrite. For example:
+`https://h3jones.github.io/MassSpecToolkit/#/tools/ion-calculator`.
+Unknown page routes display a not-found message. Home-page section anchors
+continue to work.
 
-## UI and future tools
+## UI and toolkit integration
 
 shadcn configuration lives in [components.json](./components.json); generated
 UI primitives are in [src/components/ui](./src/components/ui). Add components
 from this directory with `npx shadcn@latest add <component>`.
 
-The toolkit is intentionally not imported yet, avoiding shipping charts or
-WASM on a landing-only page. When adding calculator pages, reuse its existing
-web components rather than rewriting the science in React. Verify production
-custom-element registration and worker/WASM asset loading before deployment;
-the toolkit's source imports currently need production side-effect handling.
+Calculator pages are lazy-loaded, keeping chart code off the initial landing
+page. They reuse the existing toolkit web components, including their forms,
+loading states, errors, and results; no calculations are reimplemented in React.
+
+The local `ms-toolkit` dependency is aliased to its TypeScript source in the
+Vite and TypeScript configurations. This lets Vite process the worker and WASM
+assets directly without relying on a prebuilt library distribution. The
+toolkit marks source component registrations as side effects so production
+tree-shaking preserves them. Keep both alias configurations in sync when
+adding tool imports.
+
+Inputs and submit buttons are themed through the components' `input` and
+`button` CSS parts. Calculators inherit the site's light/dark color scheme.

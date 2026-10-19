@@ -15,9 +15,9 @@ template.innerHTML = `
     th:first-child, td:first-child { text-align: left; }
   </style>
   <form part="form">
-    <label>Formula <input name="formula" value="C6H12O6" required></label>
-    <label>Charge <input name="charge" type="number" min="-255" max="255" step="1" value="1" required></label>
-    <button type="submit">Calculate</button>
+    <label>Formula <input part="input" name="formula" value="C6H12O6" required></label>
+    <label>Charge <input part="input" name="charge" type="number" min="-255" max="255" step="1" value="1" required></label>
+    <button part="button" type="submit">Calculate</button>
   </form>
   <p class="status" part="status" role="status" aria-live="polite" hidden>
     <span class="spinner" aria-hidden="true"></span> Calculating ion...
@@ -89,12 +89,13 @@ export class MsIonCalculator extends HTMLElement {
     } catch (error) {
       if (run !== this.#run) return undefined;
       const err = error instanceof Error ? error : new Error(String(error));
-      this.#output.replaceChildren(
-        Object.assign(document.createElement("p"), {
-          className: "error",
-          textContent: err.message,
-        }),
-      );
+      const message = Object.assign(document.createElement("p"), {
+        className: "error",
+        role: "alert",
+        textContent: err.message,
+      });
+      message.part.add("error");
+      this.#output.replaceChildren(message);
       this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
       return undefined;
     } finally {

@@ -6,8 +6,27 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 export default defineConfig({
   base: "/MassSpecToolkit/",
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "ms-toolkit/ion-calculator": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/ion-calculator.ts", import.meta.url),
+      ),
+      "ms-toolkit/mass-split": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/mass-split.ts", import.meta.url),
+      ),
+      "ms-toolkit/fine-isotope-structure": fileURLToPath(
+        new URL(
+          "../../packages/ms-toolkit/src/elements/fine-isotope-structure.ts",
+          import.meta.url,
+        ),
+      ),
+    },
   },
+  server: {
+    fs: { allow: [fileURLToPath(new URL("../..", import.meta.url))] },
+  },
+  worker: { format: "es" },
+  test: { include: ["src/**/*.test.ts"] },
   fmt: {},
   lint: {
     plugins: ["react", "typescript", "oxc"],

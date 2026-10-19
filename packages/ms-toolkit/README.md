@@ -53,6 +53,11 @@ coverage first, then retry at 99.99%, 99.9%, and 99% if the 200,000-state cap
 is exceeded. The displayed retained probability indicates how much probability
 the returned distribution contains.
 
+The calculator components expose `input` and `button` CSS parts for styling
+their form controls, alongside `form`, `status`, and result/error parts.
+For example, `ms-ion-calculator::part(input)` styles its formula and charge
+inputs without accessing the shadow DOM.
+
 ## Charts and helpers
 
 For custom chart layouts, `ms-toolkit/charts` exports ECharts option builders.
