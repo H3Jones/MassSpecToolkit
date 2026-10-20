@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         "ion-calculator": src("elements/ion-calculator.ts"),
         "mass-split": src("elements/mass-split.ts"),
+        "peak-assignment": src("elements/peak-assignment.ts"),
       },
       output: {
         entryFileNames: "[name].mjs",

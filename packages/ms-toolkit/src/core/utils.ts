@@ -54,6 +54,35 @@ export function formatFormulaHtml(atomCounts: readonly AtomCount[]): string {
     .join("");
 }
 
+/** Formats a canonical ion formula such as `C6H12O6` or `^13C2H4` as HTML. */
+export function formatIonFormulaHtml(formula: string): string {
+  const token = /(\^([1-9]\d*))?([A-Z][a-z]?)([1-9]\d*)?/y;
+  let offset = 0;
+  let formatted = "";
+  while (offset < formula.length) {
+    token.lastIndex = offset;
+    const match = token.exec(formula);
+    if (!match) throw new TypeError(`Invalid ion formula: ${formula}`);
+
+    const isotope = match[2];
+    const count = match[4] === undefined ? 1 : Number(match[4]);
+    const massNumber = isotope === undefined ? 0 : Number(isotope);
+    if (!Number.isSafeInteger(count) || !Number.isSafeInteger(massNumber)) {
+      throw new RangeError(`Ion formula values must be safe integers: ${formula}`);
+    }
+
+    formatted += formatAtomHtml({
+      symbol: match[3]!,
+      mass_number: massNumber,
+      isotope_was_specified: isotope !== undefined,
+    });
+    if (count !== 1) formatted += `<sub>${count}</sub>`;
+    offset = token.lastIndex;
+  }
+  if (formatted === "") throw new TypeError(`Invalid ion formula: ${formula}`);
+  return formatted;
+}
+
 export function renormalizeIntensities<T extends { int: number }>(
   peaks: readonly T[],
 ): (Omit<T, "int"> & { int: number })[] {

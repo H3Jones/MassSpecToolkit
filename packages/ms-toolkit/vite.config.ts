@@ -21,6 +21,7 @@ export default defineConfig({
       "fine-isotope-structure": src("elements/fine-isotope-structure.ts"),
       "ion-calculator": src("elements/ion-calculator.ts"),
       "mass-split": src("elements/mass-split.ts"),
+      "peak-assignment": src("elements/peak-assignment.ts"),
       "mass-spectrum": src("elements/mass-spectrum.ts"),
       table: src("elements/table.ts"),
       charts: src("charts/index.ts"),

@@ -3,16 +3,21 @@ import type { MsApi } from "./wasm.ts";
 
 export type {
   AtomCount,
+  ElementRangeResult,
   FineIsotopeDistributionResult,
   FineIsotopePeakResult,
   FormulaResult,
   IonResult,
   MassSplitResult,
+  MassToleranceUnit,
+  PeakAssignmentMatchResult,
+  PeakAssignmentResult,
 } from "./types.ts";
 export type { MsApi } from "./wasm.ts";
 export {
   formatAtomHtml,
   formatFormulaHtml,
+  formatIonFormulaHtml,
   formatIsotopeLabelHtml,
   renormalizeIntensities,
 } from "./utils.ts";

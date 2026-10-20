@@ -144,6 +144,10 @@
         letter-spacing: -0.01em;
       }
 
+      .card-wide {
+        grid-column: 1 / -1;
+      }
+
       .chart-stack {
         display: grid;
         gap: 1rem;
@@ -250,6 +254,17 @@
           <article class="card">
             <h3>Fine isotope structure</h3>
             <ms-fine-isotope-structure formula="C2H6O"></ms-fine-isotope-structure>
+          </article>
+          <article class="card card-wide">
+            <h3>Peak assignment</h3>
+            <ms-peak-assignment
+              mass="180.06284"
+              error="5"
+              error-unit="ppm"
+              charge-min="1"
+              charge-max="1"
+              element-ranges="C4-100 H8-100 O2-100"
+            ></ms-peak-assignment>
           </article>
         </div>
       </section>

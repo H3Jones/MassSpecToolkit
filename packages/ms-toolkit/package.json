@@ -30,6 +30,10 @@
       "types": "./dist/mass-split.d.mts",
       "import": "./dist/mass-split.mjs"
     },
+    "./peak-assignment": {
+      "types": "./dist/peak-assignment.d.mts",
+      "import": "./dist/peak-assignment.mjs"
+    },
     "./mass-spectrum": {
       "types": "./dist/mass-spectrum.d.mts",
       "import": "./dist/mass-spectrum.mjs"

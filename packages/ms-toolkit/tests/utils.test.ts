@@ -3,6 +3,7 @@ import type { AtomCount } from "../src/core/types.ts";
 import {
   formatAtomHtml,
   formatFormulaHtml,
+  formatIonFormulaHtml,
   formatIsotopeLabelHtml,
   renormalizeIntensities,
 } from "../src/core/utils.ts";
@@ -115,6 +116,22 @@ describe("formula HTML formatters", () => {
     ];
 
     expect(formatFormulaHtml(atomCounts)).toBe("C<sub>6</sub>H<sub>12</sub>O<sub>6</sub>");
+  });
+
+  describe("ion formula HTML formatter", () => {
+    it("formats atom counts and explicit isotope numbers", () => {
+      expect(formatIonFormulaHtml("C6H12O6")).toBe("C<sub>6</sub>H<sub>12</sub>O<sub>6</sub>");
+      expect(formatIonFormulaHtml("C2^13CH4^18O")).toBe(
+        "C<sub>2</sub><sup>13</sup>CH<sub>4</sub><sup>18</sup>O",
+      );
+    });
+
+    it.each(["", "C0", "^0C", "<img src=x>", "C<script>"])(
+      "rejects invalid formula input: %s",
+      (formula) => {
+        expect(() => formatIonFormulaHtml(formula)).toThrow();
+      },
+    );
   });
 
   it("formats specified isotope mass numbers as superscript elements", () => {
