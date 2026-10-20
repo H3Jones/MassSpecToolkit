@@ -47,9 +47,7 @@ Fonts, icons, and styles are bundled locally, with no third-party CDN requests.
 
 The Vite base path is `/MassSpecToolkit/`, matching the repository's Pages URL:
 `https://h3jones.github.io/MassSpecToolkit/`. `npm run build` produces the static
-site in `dist`. No deployment workflow is included, and nothing is published
-automatically. Change `base` in [vite.config.ts](./vite.config.ts) if using a
-custom domain or a different repository name.
+site in `dist`.
 
 Calculator navigation uses hash routes, so direct links, refresh, and browser
 back/forward work on Pages without a server-side SPA rewrite. For example:
