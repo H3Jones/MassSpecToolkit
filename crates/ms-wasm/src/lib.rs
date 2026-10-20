@@ -129,6 +129,7 @@ pub fn parse_element_ranges(input: &str) -> Result<Ts<ElementRangesResult>, JsEr
 
 /// Assigns one measured m/z over an inclusive signed charge range, excluding zero.
 /// Formulas describe the complete ion composition; no adducts are added.
+/// Errors are experimental minus theoretical; ppm errors and tolerances use theoretical m/z.
 #[wasm_bindgen]
 pub fn assign_peak(
     observed_mz: f64,
@@ -173,12 +174,12 @@ pub fn assign_peak(
             assignments
                 .into_iter()
                 .map(|hit| PeakAssignmentMatchResult {
-                    formula: hit.ion.formula().to_string(),
+                    formula: hit.ion().formula().to_string(),
                     charge,
-                    mass: hit.ion.mass(),
-                    mass_to_charge: hit.ion.mass_to_charge(),
-                    error_da: hit.error_da,
-                    error_ppm: hit.error_ppm,
+                    mass: hit.ion().mass(),
+                    mass_to_charge: hit.calculated_mz(),
+                    error_da: hit.error_da(),
+                    error_ppm: hit.error_ppm(),
                 }),
         );
     }

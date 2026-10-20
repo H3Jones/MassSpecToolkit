@@ -96,47 +96,124 @@ impl ElementRange {
     }
 }
 
-/// Symmetric tolerance around the observed peak, including the boundary.
+/// Matching tolerance, including the boundary.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MassTolerance {
     /// Absolute tolerance in the same coordinate as the input (Da for a neutral mass).
     Da(f64),
-    /// Parts per million of the observed m/z, not the candidate m/z.
+    /// Parts per million of each candidate's calculated m/z.
     Ppm(f64),
 }
 
 impl MassTolerance {
-    fn absolute(self, observed_mz: f64) -> Result<f64, MassAssignmentError> {
+    fn mz_bounds(self, observed_mz: f64) -> Result<(f64, Option<f64>), MassAssignmentError> {
         let value = match self {
             Self::Da(value) | Self::Ppm(value) => value,
         };
         if !value.is_finite() || value < 0.0 {
             return Err(MassAssignmentError::InvalidTolerance);
         }
-        let absolute = match self {
-            Self::Da(value) => value,
-            Self::Ppm(value) => observed_mz * (value / 1e6),
-        };
-        if !absolute.is_finite() {
-            return Err(MassAssignmentError::MassWindowOverflow);
+        Ok(match self {
+            Self::Da(value) => (observed_mz - value, Some(observed_mz + value)),
+            Self::Ppm(value) => {
+                let relative = value / 1e6;
+                // |observed - calculated| / calculated <= relative.
+                let lower = observed_mz / (1.0 + relative);
+                let upper = if relative < 1.0 {
+                    Some(observed_mz / (1.0 - relative))
+                } else {
+                    None
+                };
+                (lower, upper)
+            }
+        })
+    }
+
+    fn contains(self, assignment: &MassAssignment) -> bool {
+        match self {
+            Self::Da(value) => assignment.error_da().abs() <= value,
+            Self::Ppm(value) => assignment.error_ppm().abs() <= value,
         }
-        Ok(absolute)
     }
 }
 
+/// An ion assigned to one observed m/z, or a neutral mass for [`Charge::Neutral`].
+///
+/// The calculated m/z is cached at construction; signed errors are derived on demand.
+///
+/// ```
+/// use ms_core::{
+///     assignment::MassAssignment,
+///     formula::Formula,
+///     ion::{Charge, Ion},
+/// };
+///
+/// let ion = Ion::new(Formula::parse("C6H12O6")?, Charge::Positive(1));
+/// let asn = MassAssignment::new(ion, 180.06284)?;
+/// assert_eq!(asn.observed_mz(), 180.06284);
+/// assert!(asn.error_ppm().abs() < 5.0);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct MassAssignment {
-    /// Complete ion composition; charge and calculated m/z are available on the ion.
-    pub ion: Ion,
-    /// Calculated minus observed m/z (Da for a neutral mass).
-    pub error_da: f64,
-    /// `error_da / observed_mz * 1e6`.
-    pub error_ppm: f64,
+    ion: Ion,
+    observed_mz: f64,
+    calculated_mz: f64,
+}
+
+impl MassAssignment {
+    /// Creates an assignment directly from an ion and measurement, without a formula search.
+    ///
+    /// Both observed and calculated m/z must be finite and greater than zero.
+    /// Zero-magnitude positive or negative charges must use [`Charge::Neutral`] instead.
+    pub fn new(ion: Ion, observed_mz: f64) -> Result<Self, MassAssignmentError> {
+        if !observed_mz.is_finite() || observed_mz <= 0.0 {
+            return Err(MassAssignmentError::InvalidObservedMz);
+        }
+        if matches!(ion.charge(), Charge::Positive(0) | Charge::Negative(0)) {
+            return Err(MassAssignmentError::InvalidCharge);
+        }
+        let calculated_mz = ion.mass_to_charge();
+        if !calculated_mz.is_finite() || calculated_mz <= 0.0 {
+            return Err(MassAssignmentError::InvalidCalculatedMz);
+        }
+        Ok(Self {
+            ion,
+            observed_mz,
+            calculated_mz,
+        })
+    }
+
+    /// Returns the complete ion composition and charge.
+    pub fn ion(&self) -> &Ion {
+        &self.ion
+    }
+
+    /// Returns the measured m/z, or measured mass for a neutral assignment.
+    pub fn observed_mz(&self) -> f64 {
+        self.observed_mz
+    }
+
+    /// Returns the cached calculated m/z, or mass for a neutral assignment.
+    pub fn calculated_mz(&self) -> f64 {
+        self.calculated_mz
+    }
+
+    /// Observed (experimental) minus calculated (theoretical) m/z (Da for a neutral mass).
+    pub fn error_da(&self) -> f64 {
+        self.observed_mz - self.calculated_mz
+    }
+
+    /// Signed ppm error: `(experimental - theoretical) / theoretical * 1e6`.
+    pub fn error_ppm(&self) -> f64 {
+        (self.error_da() / self.calculated_mz) * 1e6
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MassAssignmentError {
     InvalidObservedMz,
+    InvalidCalculatedMz,
     InvalidTolerance,
     InvalidCharge,
     EmptyElementRanges,
@@ -149,6 +226,9 @@ impl std::fmt::Display for MassAssignmentError {
         match self {
             Self::InvalidObservedMz => {
                 write!(f, "observed m/z must be finite and greater than zero")
+            }
+            Self::InvalidCalculatedMz => {
+                write!(f, "calculated m/z must be finite and greater than zero")
             }
             Self::InvalidTolerance => write!(f, "mass tolerance must be finite and nonnegative"),
             Self::InvalidCharge => {
@@ -193,7 +273,7 @@ impl std::error::Error for MassAssignmentError {}
 /// let ranges = ["C4-100", "H8-100", "O2-100"]
 ///     .map(|range| ElementRange::parse(range).unwrap());
 /// let matches = assign_mass(180.06338810418, Charge::Neutral, &ranges, MassTolerance::Ppm(5.0))?;
-/// assert!(matches.iter().any(|hit| hit.ion.formula().to_string() == "C6H12O6"));
+/// assert!(matches.iter().any(|hit| hit.ion().formula().to_string() == "C6H12O6"));
 /// # Ok::<(), ms_core::assignment::MassAssignmentError>(())
 /// ```
 pub fn assign_mass(
@@ -205,7 +285,7 @@ pub fn assign_mass(
     if !observed_mz.is_finite() || observed_mz <= 0.0 {
         return Err(MassAssignmentError::InvalidObservedMz);
     }
-    let tolerance_da = tolerance.absolute(observed_mz)?;
+    let (lower_mz, upper_mz) = tolerance.mz_bounds(observed_mz)?;
     let (factor, electron_correction) = match charge {
         Charge::Positive(0) | Charge::Negative(0) => {
             return Err(MassAssignmentError::InvalidCharge);
@@ -224,9 +304,9 @@ pub fn assign_mass(
         }
     }
 
-    let lower = ((observed_mz - tolerance_da) * factor + electron_correction).max(0.0);
-    let upper = (observed_mz + tolerance_da) * factor + electron_correction;
-    if !lower.is_finite() || !upper.is_finite() {
+    let lower = (lower_mz * factor + electron_correction).max(0.0);
+    let upper = upper_mz.map(|mz| mz * factor + electron_correction);
+    if !lower.is_finite() || upper.is_some_and(|upper| !upper.is_finite()) {
         return Err(MassAssignmentError::MassWindowOverflow);
     }
 
@@ -244,6 +324,9 @@ pub fn assign_mass(
         suffix_max[index] = suffix_max[index + 1] + mass * f64::from(range.max);
     }
 
+    // At >= 1e6 ppm there is no theoretical upper bound; finite count ranges bound the search.
+    let upper = upper.unwrap_or(suffix_max[0]);
+
     // Inverting m/z and summing in a different order can round at exact boundaries.
     // Widen only pruning bounds; the final Ion m/z must satisfy the actual tolerance.
     let padding = upper.abs().max(1.0) * f64::EPSILON * (4.0 * ranges.len() as f64 + 8.0);
@@ -254,58 +337,61 @@ pub fn assign_mass(
         lower: lower - padding,
         upper: upper + padding,
         observed_mz,
-        tolerance_da,
+        tolerance,
         charge,
         matches: Vec::new(),
     };
-    search.visit(0, 0.0, &mut Vec::new());
-    search.matches.sort_by(|a, b| {
-        a.error_da.abs().total_cmp(&b.error_da.abs()).then_with(|| {
-            a.ion
-                .formula()
-                .to_string()
-                .cmp(&b.ion.formula().to_string())
-        })
-    });
+    search.visit(0, 0.0, &mut Vec::new())?;
+    search.matches.sort_by(compare_assignments);
     Ok(search.matches)
 }
 
+/// Compares two mass assignments based on their error in daltons and then by their formula.
+fn compare_assignments(
+    a: &MassAssignment,
+    b: &MassAssignment,
+) -> std::cmp::Ordering {
+    a.error_da()
+        .abs()
+        .total_cmp(&b.error_da().abs())
+        .then_with(|| {
+            a.ion()
+                .formula()
+                .to_string()
+                .cmp(&b.ion().formula().to_string())
+        })
+}
+
 struct Search {
+    /// Holds the state for the recursive search of valid mass assignments.
     ranges: Vec<ElementRange>,
+    /// Precomputed minimum possible mass for the suffix starting at each index.
     suffix_min: Vec<f64>,
+    /// Precomputed maximum possible mass for the suffix starting at each index.
     suffix_max: Vec<f64>,
+    /// The lower bound for the total mass of the assignment.
     lower: f64,
+    /// The upper bound for the total mass of the assignment.
     upper: f64,
+    /// The observed mass-to-charge ratio for the ion.
     observed_mz: f64,
-    tolerance_da: f64,
+    /// The mass tolerance for matching assignments.
+    tolerance: MassTolerance,
+    /// The charge state of the ion.
     charge: Charge,
+    /// The list of valid mass assignments found during the search.
     matches: Vec<MassAssignment>,
 }
 
 impl Search {
-    fn visit(&mut self, index: usize, mass: f64, composition: &mut Vec<AtomCount>) {
-        if index == self.ranges.len() {
-            if composition.is_empty() {
-                return;
-            }
-            let mut atom_counts = composition.clone();
-            sort_by_hill_order(&mut atom_counts);
-            let formula = Formula::from_atom_counts(atom_counts)
-                .expect("nonempty assignment compositions contain only positive counts");
-            let ion = Ion::new(formula, self.charge);
-            let error_da = ion.mass_to_charge() - self.observed_mz;
-            if error_da.abs() <= self.tolerance_da {
-                self.matches.push(MassAssignment {
-                    ion,
-                    error_da,
-                    error_ppm: (error_da / self.observed_mz) * 1e6,
-                });
-            }
-            return;
-        }
-
+    /// Calculates the minimum and maximum number of atoms for the given element range
+    /// that can fit within the remaining mass bounds.
+    ///
+    /// Returns `None` if no valid counts exist, otherwise returns `Some((min, max))`.
+    fn calculate_min_max(&self, index: usize, mass: f64) -> Option<(i32, i32)> {
         let range = self.ranges[index];
         let atom_mass = range.atom.relative_atomic_mass();
+
         let min = ((self.lower - mass - self.suffix_max[index + 1]) / atom_mass)
             .ceil()
             .max(f64::from(range.min));
@@ -313,8 +399,45 @@ impl Search {
             .floor()
             .min(f64::from(range.max));
         if min > max {
-            return;
+            None
+        } else {
+            Some((min as i32, max as i32))
         }
+    }
+
+    /// Recursively visits all possible atom count combinations for the given element ranges.
+    ///
+    /// Adds valid mass assignments to `self.matches` if they fall within the specified mass bounds.
+    fn visit(
+        &mut self,
+        index: usize,
+        mass: f64,
+        composition: &mut Vec<AtomCount>,
+    ) -> Result<(), MassAssignmentError> {
+        if index == self.ranges.len() {
+            if composition.is_empty() {
+                return Ok(());
+            }
+            let mut atom_counts = composition.clone();
+            sort_by_hill_order(&mut atom_counts);
+            let formula = Formula::from_atom_counts(atom_counts)
+                .expect("nonempty assignment compositions contain only positive counts");
+            let ion = Ion::new(formula, self.charge);
+            let assignment = MassAssignment::new(ion, self.observed_mz)?;
+            if self.tolerance.contains(&assignment) {
+                self.matches.push(assignment);
+            }
+            return Ok(());
+        }
+
+        let range = self.ranges[index];
+        let atom_mass = range.atom.relative_atomic_mass();
+
+        let (min, max) = match self.calculate_min_max(index, mass) {
+            Some((min, max)) => (min, max),
+            None => return Ok(()),
+        };
+
         for count in min as i32..=max as i32 {
             if count > 0 {
                 composition.push(AtomCount {
@@ -322,11 +445,12 @@ impl Search {
                     count,
                 });
             }
-            self.visit(index + 1, mass + atom_mass * f64::from(count), composition);
+            self.visit(index + 1, mass + atom_mass * f64::from(count), composition)?;
             if count > 0 {
                 composition.pop();
             }
         }
+        Ok(())
     }
 }
 
@@ -345,8 +469,64 @@ mod tests {
     fn formulas(matches: &[MassAssignment]) -> Vec<String> {
         matches
             .iter()
-            .map(|hit| hit.ion.formula().to_string())
+            .map(|hit| hit.ion().formula().to_string())
             .collect()
+    }
+
+    #[test]
+    fn constructs_assignments_without_search_and_derives_signed_errors() {
+        let formula = Formula::parse("C2^13CH").unwrap();
+        for charge in [
+            Charge::Neutral,
+            Charge::Positive(1),
+            Charge::Negative(1),
+            Charge::Positive(2),
+            Charge::Negative(3),
+            Charge::Positive(255),
+            Charge::Negative(255),
+        ] {
+            let ion = Ion::new(formula.clone(), charge);
+            let calculated = ion.mass_to_charge();
+            for offset in [-0.0001, 0.0, 0.0001] {
+                let observed = calculated + offset;
+                let assignment = MassAssignment::new(ion.clone(), observed).unwrap();
+                assert_eq!(assignment.ion().formula(), &formula);
+                assert_eq!(assignment.ion().charge(), &charge);
+                assert_eq!(assignment.observed_mz(), observed);
+                assert_eq!(assignment.calculated_mz(), calculated);
+                assert_eq!(assignment.error_da(), observed - calculated);
+                assert_eq!(
+                    assignment.error_ppm(),
+                    ((observed - calculated) / calculated) * 1e6
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_the_original_observation_when_error_subtraction_loses_precision() {
+        let ion = Ion::new(Formula::parse("H2O").unwrap(), Charge::Neutral);
+        let observed = 1e-20;
+        let assignment = MassAssignment::new(ion, observed).unwrap();
+        assert_eq!(assignment.observed_mz().to_bits(), observed.to_bits());
+        assert_eq!(assignment.calculated_mz() + assignment.error_da(), 0.0);
+    }
+
+    #[test]
+    fn rejects_invalid_assignment_observations_and_zero_magnitude_charges() {
+        let formula = Formula::parse("H2O").unwrap();
+        for observed in [0.0, -0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(matches!(
+                MassAssignment::new(Ion::new(formula.clone(), Charge::Neutral), observed),
+                Err(MassAssignmentError::InvalidObservedMz)
+            ));
+        }
+        for charge in [Charge::Positive(0), Charge::Negative(0)] {
+            assert!(matches!(
+                MassAssignment::new(Ion::new(formula.clone(), charge), H2O_MASS),
+                Err(MassAssignmentError::InvalidCharge)
+            ));
+        }
     }
 
     #[test]
@@ -412,10 +592,15 @@ mod tests {
                     let mut expected: Vec<_> = reference
                         .iter()
                         .filter_map(|formula| {
-                            let error =
-                                Ion::new(formula.clone(), charge).mass_to_charge() - observed;
-                            (error.abs() <= tolerance.absolute(observed).unwrap())
-                                .then(|| (error, formula.to_string()))
+                            let calculated = Ion::new(formula.clone(), charge).mass_to_charge();
+                            let error = observed - calculated;
+                            let fits = match tolerance {
+                                MassTolerance::Da(limit) => error.abs() <= limit,
+                                MassTolerance::Ppm(limit) => {
+                                    ((error / calculated) * 1e6).abs() <= limit
+                                }
+                            };
+                            fits.then(|| (error, formula.to_string()))
                         })
                         .collect();
                     expected.sort_by(|a, b| {
@@ -487,7 +672,9 @@ mod tests {
         .unwrap();
         assert_eq!(formulas(&matches), ["Cl"]);
         assert_eq!(
-            matches[0].ion.formula().atom_counts()[0].atom.mass_number(),
+            matches[0].ion().formula().atom_counts()[0]
+                .atom
+                .mass_number(),
             35
         );
         assert!(
@@ -512,7 +699,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(formulas(&matches), ["C6H12O6"]);
-        assert!(matches[0].error_ppm.abs() < 1e-6);
+        assert!(matches[0].error_ppm().abs() < 1e-6);
     }
 
     #[test]
@@ -534,13 +721,15 @@ mod tests {
             )
             .unwrap();
             assert_eq!(formulas(&matches), ["C2H7O"], "{charge:?}");
-            assert_eq!(matches[0].ion.charge(), &charge);
-            assert_eq!(matches[0].error_da, 0.0);
+            assert_eq!(matches[0].ion().charge(), &charge);
+            assert_eq!(matches[0].observed_mz(), expected.mass_to_charge());
+            assert_eq!(matches[0].calculated_mz(), expected.mass_to_charge());
+            assert_eq!(matches[0].error_da(), 0.0);
         }
     }
 
     #[test]
-    fn reports_signed_errors_relative_to_the_observed_peak() {
+    fn reports_experimental_minus_theoretical_errors_relative_to_theoretical_mass() {
         for offset in [-0.0001, 0.0001] {
             let observed = H2O_MASS + offset;
             let matches = assign_mass(
@@ -551,11 +740,99 @@ mod tests {
             )
             .unwrap();
             assert_eq!(matches.len(), 1);
-            assert_eq!(matches[0].error_da, H2O_MASS - observed);
+            assert_eq!(matches[0].observed_mz(), observed);
+            assert_eq!(matches[0].calculated_mz(), H2O_MASS);
+            assert_eq!(matches[0].error_da(), observed - H2O_MASS);
             assert_eq!(
-                matches[0].error_ppm,
-                ((H2O_MASS - observed) / observed) * 1e6
+                matches[0].error_ppm(),
+                ((observed - H2O_MASS) / H2O_MASS) * 1e6
             );
+        }
+    }
+
+    #[test]
+    fn ppm_errors_use_theoretical_mass_and_experimental_minus_theoretical_sign() {
+        for (observed, error_da, error_ppm) in [(15.0, 3.0, 250_000.0), (9.0, -3.0, -250_000.0)] {
+            let ion = Ion::new(Formula::parse("C").unwrap(), Charge::Neutral);
+            let assignment = MassAssignment::new(ion, observed).unwrap();
+            assert_eq!(assignment.calculated_mz(), 12.0);
+            assert_eq!(assignment.error_da(), error_da);
+            assert_eq!(assignment.error_ppm(), error_ppm);
+        }
+    }
+
+    #[test]
+    fn ppm_search_uses_theoretical_not_observed_mz_as_the_reference() {
+        let bounds = ranges(&["C1"]);
+        for charge in [Charge::Neutral, Charge::Positive(2), Charge::Negative(2)] {
+            let calculated = Ion::new(Formula::parse("C").unwrap(), charge).mass_to_charge();
+            for (factor, expected_count) in [(0.905, 1), (1.105, 0)] {
+                let observed = calculated * factor;
+                let matches =
+                    assign_mass(observed, charge, &bounds, MassTolerance::Ppm(100_000.0)).unwrap();
+                assert_eq!(matches.len(), expected_count, "{charge:?} {observed}");
+            }
+        }
+    }
+
+    #[test]
+    fn includes_exact_ppm_boundaries_but_not_the_next_smaller_tolerance() {
+        let bounds = ranges(&["H2", "O1"]);
+        for charge in [Charge::Neutral, Charge::Positive(2), Charge::Negative(2)] {
+            let calculated = Ion::new(Formula::parse("H2O").unwrap(), charge).mass_to_charge();
+            for offset in [-0.001, 0.001] {
+                let observed = calculated + offset;
+                let ppm = ((observed - calculated) / calculated * 1e6).abs();
+                assert_eq!(
+                    assign_mass(observed, charge, &bounds, MassTolerance::Ppm(ppm))
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                assert!(
+                    assign_mass(
+                        observed,
+                        charge,
+                        &bounds,
+                        MassTolerance::Ppm(ppm.next_down())
+                    )
+                    .unwrap()
+                    .is_empty()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn zero_ppm_requires_an_exact_match() {
+        let bounds = ranges(&["C2", "^13C1", "H1"]);
+        for charge in [Charge::Neutral, Charge::Positive(2), Charge::Negative(3)] {
+            let calculated = Ion::new(Formula::parse("C2^13CH").unwrap(), charge).mass_to_charge();
+            let exact = assign_mass(calculated, charge, &bounds, MassTolerance::Ppm(0.0)).unwrap();
+            assert_eq!(formulas(&exact), ["C2^13CH"]);
+            for observed in [calculated.next_down(), calculated.next_up()] {
+                assert!(
+                    assign_mass(observed, charge, &bounds, MassTolerance::Ppm(0.0))
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn large_ppm_tolerances_are_bounded_by_the_supplied_atom_counts() {
+        let bounds = ranges(&["C1"]);
+        for (observed, ppm, expected_count) in [
+            (1.0, 1_000_000.0, 1),
+            (24.0, 1_000_000.0, 1),
+            (36.0, 1_000_000.0, 0),
+            (36.0, 2_000_000.0, 1),
+            (1.0, f64::MAX, 1),
+        ] {
+            let matches =
+                assign_mass(observed, Charge::Neutral, &bounds, MassTolerance::Ppm(ppm)).unwrap();
+            assert_eq!(matches.len(), expected_count, "{observed} {ppm}");
         }
     }
 
@@ -588,12 +865,12 @@ mod tests {
     }
 
     #[test]
-    fn scales_ppm_and_absolute_tolerance_in_the_observed_coordinate() {
+    fn scales_ppm_tolerance_by_the_calculated_mz() {
         let bounds = ranges(&["C2-2", "H6-6", "O1-1"]);
         let charge = Charge::Positive(2);
         let calculated = Ion::new(Formula::parse("C2H6O").unwrap(), charge).mass_to_charge();
         let observed = calculated + 0.0001;
-        let absolute = observed * (5.0 / 1e6);
+        let absolute = calculated * (5.0 / 1e6);
         let ppm_matches = assign_mass(observed, charge, &bounds, MassTolerance::Ppm(5.0)).unwrap();
         let da_matches =
             assign_mass(observed, charge, &bounds, MassTolerance::Da(absolute)).unwrap();
@@ -728,7 +1005,7 @@ mod tests {
         for (observed, charge, tolerance) in [
             (f64::MAX, Charge::Positive(2), MassTolerance::Da(0.0)),
             (f64::MAX, Charge::Neutral, MassTolerance::Da(f64::MAX)),
-            (f64::MAX, Charge::Neutral, MassTolerance::Ppm(f64::MAX)),
+            (f64::MAX, Charge::Neutral, MassTolerance::Ppm(500_000.0)),
         ] {
             assert!(matches!(
                 assign_mass(observed, charge, &bounds, tolerance),
@@ -773,14 +1050,22 @@ mod tests {
                     MassTolerance::Da(1.1),
                     MassTolerance::Ppm(5.0),
                     MassTolerance::Ppm(100_000.0),
+                    MassTolerance::Ppm(1_000_000.0),
+                    MassTolerance::Ppm(2_000_000.0),
                 ] {
                     let mut expected: Vec<_> = reference
                         .iter()
                         .filter_map(|formula| {
                             let ion = Ion::new(formula.clone(), charge);
-                            let error = ion.mass_to_charge() - observed;
-                            (error.abs() <= tolerance.absolute(observed).unwrap())
-                                .then(|| (error, formula.to_string()))
+                            let calculated = ion.mass_to_charge();
+                            let error = observed - calculated;
+                            let fits = match tolerance {
+                                MassTolerance::Da(limit) => error.abs() <= limit,
+                                MassTolerance::Ppm(limit) => {
+                                    ((error / calculated) * 1e6).abs() <= limit
+                                }
+                            };
+                            fits.then(|| (error, formula.to_string()))
                         })
                         .collect();
                     expected.sort_by(|a, b| {
