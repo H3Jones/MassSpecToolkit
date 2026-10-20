@@ -4,6 +4,7 @@ use pest::{Parser, iterators::Pair};
 use pest_derive::Parser;
 
 use crate::{
+    assignment::ElementRange,
     formula::{Atom, AtomCount, Formula},
     isotopes::{IsotopeId, atomic_number_for_symbol, isotope_data, most_abundant_isotope},
 };
@@ -68,10 +69,90 @@ impl Error for FormulaParseError {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum ElementRangeParseError {
+    EmptyElementRanges,
+    InvalidRangeSyntax(String),
+    InvalidRange { symbol: String, min: i32, max: i32 },
+    UnknownElement(String),
+    NoMostAbundantIsotope(String),
+    DuplicateElement(&'static str),
+}
+
+impl fmt::Display for ElementRangeParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyElementRanges => write!(f, "at least one element range is required"),
+            Self::InvalidRangeSyntax(value) => {
+                write!(
+                    f,
+                    "invalid element range {value:?}; expected a range such as C4-100 or a fixed count such as Na1"
+                )
+            }
+            Self::InvalidRange { symbol, min, max } => {
+                write!(f, "invalid range for {symbol}: require 0 <= {min} <= {max}")
+            }
+            Self::UnknownElement(symbol) => write!(f, "unknown element symbol {symbol}"),
+            Self::NoMostAbundantIsotope(symbol) => {
+                write!(f, "no most-abundant isotope is available for {symbol}")
+            }
+            Self::DuplicateElement(symbol) => write!(f, "element {symbol} has more than one range"),
+        }
+    }
+}
+
+impl Error for ElementRangeParseError {}
+
 pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
     let atoms = parse_components(input)?;
     let atoms = combine_repeated_atoms(atoms)?;
     Formula::from_atom_counts(resolve_atoms(atoms)?)
+}
+
+/// Parses inclusive bounds such as `C4-100` or a fixed count such as `Na1`.
+/// A fixed count sets both bounds to that count; zero counts are allowed.
+/// Surrounding whitespace is ignored; isotope labels and groups are not accepted.
+pub fn parse_element_range(input: &str) -> Result<ElementRange, ElementRangeParseError> {
+    let value = input.trim();
+    let invalid = || ElementRangeParseError::InvalidRangeSyntax(input.to_owned());
+    let count_start = value
+        .find(|c: char| c.is_ascii_digit())
+        .ok_or_else(invalid)?;
+    let (symbol, counts) = value.split_at(count_start);
+    let (min, max) = counts.split_once('-').unwrap_or((counts, counts));
+    if min.is_empty()
+        || max.is_empty()
+        || !min.bytes().all(|c| c.is_ascii_digit())
+        || !max.bytes().all(|c| c.is_ascii_digit())
+    {
+        return Err(invalid());
+    }
+    ElementRange::new(
+        symbol,
+        min.parse().map_err(|_| invalid())?,
+        max.parse().map_err(|_| invalid())?,
+    )
+}
+
+/// Parses comma- or whitespace-separated element ranges and fixed counts.
+/// Requires at least one range and rejects duplicate elements.
+pub fn parse_element_ranges(input: &str) -> Result<Vec<ElementRange>, ElementRangeParseError> {
+    let mut ranges = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for value in input
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|value| !value.is_empty())
+    {
+        let range = parse_element_range(value)?;
+        if !seen.insert(range.symbol()) {
+            return Err(ElementRangeParseError::DuplicateElement(range.symbol()));
+        }
+        ranges.push(range);
+    }
+    if ranges.is_empty() {
+        return Err(ElementRangeParseError::EmptyElementRanges);
+    }
+    Ok(ranges)
 }
 
 fn parse_components(input: &str) -> Result<Vec<ParsedAtom>, FormulaParseError> {
@@ -290,6 +371,114 @@ fn cached_atomic_number(symbol: &str, cache: &mut HashMap<String, Option<u8>>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_range_lists_with_commas_spaces_and_newlines() {
+        let ranges = parse_element_ranges(" C4-100, H8-100\nO2-100\tCl0-2 ").unwrap();
+        let values: Vec<_> = ranges
+            .iter()
+            .map(|range| (range.symbol(), range.min(), range.max()))
+            .collect();
+        assert_eq!(
+            values,
+            [("C", 4, 100), ("H", 8, 100), ("O", 2, 100), ("Cl", 0, 2)]
+        );
+    }
+
+    #[test]
+    fn rejects_empty_duplicate_or_invalid_range_lists() {
+        for input in ["", " \n,\t "] {
+            assert!(matches!(
+                parse_element_ranges(input),
+                Err(ElementRangeParseError::EmptyElementRanges)
+            ));
+        }
+        assert!(matches!(
+            parse_element_ranges("C0-10 H0-20 C1-2"),
+            Err(ElementRangeParseError::DuplicateElement("C"))
+        ));
+        assert!(matches!(
+            parse_element_ranges("C0-10 H0-20 O2-1"),
+            Err(ElementRangeParseError::InvalidRange { .. })
+        ));
+        assert!(matches!(
+            parse_element_ranges("C0-10 invalid"),
+            Err(ElementRangeParseError::InvalidRangeSyntax(_))
+        ));
+    }
+
+    #[test]
+    fn parses_fixed_counts_with_reusable_errors() -> Result<(), ElementRangeParseError> {
+        for (input, symbol, count) in [
+            (" Na1 ", "Na", 1),
+            ("Na12", "Na", 12),
+            ("C4", "C", 4),
+            ("H0", "H", 0),
+            ("Na2147483647", "Na", i32::MAX),
+        ] {
+            let range = parse_element_range(input)?;
+            assert_eq!(
+                (range.symbol(), range.min(), range.max()),
+                (symbol, count, count)
+            );
+            assert_eq!(range, ElementRange::new(symbol, count, count)?);
+            assert_eq!(range, ElementRange::parse(input)?);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn mixes_fixed_counts_with_ranges_and_rejects_duplicate_elements() {
+        let ranges = parse_element_ranges("C4-100, H8-100\nNa1 Cl0").unwrap();
+        assert_eq!(ranges[2], ElementRange::new("Na", 1, 1).unwrap());
+        assert_eq!(ranges[3], ElementRange::new("Cl", 0, 0).unwrap());
+        for input in ["Na1 Na1", "Na1, Na0-2", "Na0-2 Na1"] {
+            assert!(matches!(
+                parse_element_ranges(input),
+                Err(ElementRangeParseError::DuplicateElement("Na"))
+            ));
+        }
+    }
+
+    #[test]
+    fn parses_inclusive_ranges_and_optional_elements() {
+        let carbon = parse_element_range(" C4-100 ").unwrap();
+        assert_eq!((carbon.symbol(), carbon.min(), carbon.max()), ("C", 4, 100));
+        let chlorine = parse_element_range("Cl0-2").unwrap();
+        assert_eq!(
+            (chlorine.symbol(), chlorine.min(), chlorine.max()),
+            ("Cl", 0, 2)
+        );
+        assert_eq!(parse_element_range("H0-0").unwrap().max(), 0);
+    }
+
+    #[test]
+    fn rejects_invalid_ranges_and_symbols() {
+        for value in [
+            "",
+            "C",
+            "C4-",
+            "C-4",
+            "C-1-2",
+            "C4-2",
+            "C1-2-3",
+            "C1-+2",
+            "C1- 2",
+            "C0-2147483648",
+            "Na2147483648",
+            "Na-1",
+            "Na1.5",
+            "Na1-",
+            "^13C0-2",
+            "Me0-2",
+        ] {
+            assert!(parse_element_range(value).is_err(), "{value}");
+        }
+        assert!(matches!(
+            parse_element_range("Xx0-2"),
+            Err(ElementRangeParseError::UnknownElement(_))
+        ));
+    }
 
     #[test]
     fn resolves_unspecified_isotopes_to_most_abundant() {

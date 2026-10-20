@@ -2,6 +2,7 @@
 ///
 use crate::formula::Formula;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Charge {
     Positive(u8),
     Negative(u8),
@@ -24,6 +25,7 @@ impl TryFrom<i32> for Charge {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Ion {
     formula: Formula,
     charge: Charge,

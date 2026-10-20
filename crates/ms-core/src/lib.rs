@@ -1,3 +1,4 @@
+pub mod assignment;
 pub mod formula;
 pub mod ion;
 pub mod isotopes;

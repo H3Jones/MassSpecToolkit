@@ -1,9 +1,11 @@
+use ms_core::assignment::{ElementRange, MassTolerance, assign_mass};
 use ms_core::formula::{Formula, sort_by_hill_order};
 use ms_core::ion::{Charge, Ion};
 use ms_core::isotopes::{
     FineIsotopeDistributionOptions, IsotopeDistributionError,
     fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
 };
+use ms_core::parser::parse_element_ranges as parse_ranges;
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use serde::Serialize;
 use tsify::{Ts, Tsify};
@@ -40,6 +42,45 @@ pub struct MassSplitResult {
 }
 
 #[derive(Serialize, Tsify)]
+pub struct ElementRangeResult {
+    symbol: &'static str,
+    min: i32,
+    max: i32,
+}
+
+#[derive(Serialize, Tsify)]
+pub struct ElementRangesResult {
+    ranges: Vec<ElementRangeResult>,
+}
+
+#[derive(Clone, Copy, Serialize, Tsify)]
+#[serde(rename_all = "lowercase")]
+pub enum MassToleranceUnit {
+    Ppm,
+    Da,
+}
+
+#[derive(Serialize, Tsify)]
+pub struct PeakAssignmentMatchResult {
+    formula: String,
+    charge: i32,
+    mass: f64,
+    mass_to_charge: f64,
+    error_da: f64,
+    error_ppm: f64,
+}
+
+#[derive(Serialize, Tsify)]
+pub struct PeakAssignmentResult {
+    observed_mz: f64,
+    tolerance: f64,
+    tolerance_unit: MassToleranceUnit,
+    charges: Vec<i32>,
+    element_ranges: Vec<ElementRangeResult>,
+    matches: Vec<PeakAssignmentMatchResult>,
+}
+
+#[derive(Serialize, Tsify)]
 pub struct FineIsotopePeakResult {
     label: String,
     mass: f64,
@@ -71,6 +112,89 @@ pub fn parse_formula(input: &str) -> Result<Ts<FormulaResult>, JsError> {
     let formula = Formula::parse(input).map_err(|error| JsError::new(&error.to_string()))?;
     let result = formula_result(&formula);
 
+    Ok(result.into_ts()?)
+}
+
+/// Parses a comma- or whitespace-separated range list for display before assignment.
+#[wasm_bindgen]
+pub fn parse_element_ranges(input: &str) -> Result<Ts<ElementRangesResult>, JsError> {
+    let ranges = parse_ranges(input).map_err(|error| JsError::new(&error.to_string()))?;
+    let result = ElementRangesResult {
+        ranges: ranges.iter().map(element_range_result).collect(),
+    };
+    Ok(result.into_ts()?)
+}
+
+/// Assigns one measured m/z over an inclusive signed charge range, excluding zero.
+/// Formulas describe the complete ion composition; no adducts are added.
+#[wasm_bindgen]
+pub fn assign_peak(
+    observed_mz: f64,
+    tolerance: f64,
+    tolerance_unit: &str,
+    charge_min: f64,
+    charge_max: f64,
+    element_ranges: &str,
+) -> Result<Ts<PeakAssignmentResult>, JsError> {
+    for charge in [charge_min, charge_max] {
+        if !charge.is_finite() || charge.fract() != 0.0 || !(-255.0..=255.0).contains(&charge) {
+            return Err(JsError::new(
+                "charge bounds must be integers between -255 and 255",
+            ));
+        }
+    }
+    if charge_min > charge_max {
+        return Err(JsError::new(
+            "minimum charge must not exceed maximum charge",
+        ));
+    }
+    let charges: Vec<_> = (charge_min as i32..=charge_max as i32)
+        .filter(|charge| *charge != 0)
+        .collect();
+    if charges.is_empty() {
+        return Err(JsError::new(
+            "charge range must include at least one nonzero charge",
+        ));
+    }
+    let (mass_tolerance, tolerance_unit) = match tolerance_unit {
+        "ppm" => (MassTolerance::Ppm(tolerance), MassToleranceUnit::Ppm),
+        "da" => (MassTolerance::Da(tolerance), MassToleranceUnit::Da),
+        _ => return Err(JsError::new("tolerance unit must be ppm or da")),
+    };
+    let ranges = parse_ranges(element_ranges).map_err(|error| JsError::new(&error.to_string()))?;
+    let mut matches = Vec::new();
+    for &charge in &charges {
+        let charge_type = Charge::try_from(charge).map_err(JsError::new)?;
+        let assignments = assign_mass(observed_mz, charge_type, &ranges, mass_tolerance)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        matches.extend(
+            assignments
+                .into_iter()
+                .map(|hit| PeakAssignmentMatchResult {
+                    formula: hit.ion.formula().to_string(),
+                    charge,
+                    mass: hit.ion.mass(),
+                    mass_to_charge: hit.ion.mass_to_charge(),
+                    error_da: hit.error_da,
+                    error_ppm: hit.error_ppm,
+                }),
+        );
+    }
+    matches.sort_by(|a, b| {
+        a.error_da
+            .abs()
+            .total_cmp(&b.error_da.abs())
+            .then_with(|| a.formula.cmp(&b.formula))
+            .then_with(|| a.charge.cmp(&b.charge))
+    });
+    let result = PeakAssignmentResult {
+        observed_mz,
+        tolerance,
+        tolerance_unit,
+        charges,
+        element_ranges: ranges.iter().map(element_range_result).collect(),
+        matches,
+    };
     Ok(result.into_ts()?)
 }
 
@@ -186,6 +310,14 @@ pub fn mass_split(formula_a: &str, formula_b: &str) -> Result<Ts<MassSplitResult
     };
 
     Ok(result.into_ts()?)
+}
+
+fn element_range_result(range: &ElementRange) -> ElementRangeResult {
+    ElementRangeResult {
+        symbol: range.symbol(),
+        min: range.min(),
+        max: range.max(),
+    }
 }
 
 fn formula_result(formula: &Formula) -> FormulaResult {
