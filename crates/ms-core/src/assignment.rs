@@ -4,11 +4,12 @@ use crate::{
     ELECTRON_MASS,
     formula::{Atom, AtomCount, Formula, sort_by_hill_order},
     ion::{Charge, Ion},
-    isotopes::{atomic_number_for_symbol, most_abundant_isotope},
+    isotopes::{IsotopeId, atomic_number_for_symbol, isotope_data, most_abundant_isotope},
     parser::{self, ElementRangeParseError},
 };
 
-/// Inclusive atom-count bounds for one element, using its most-abundant isotope.
+/// Inclusive count bounds for one selected isotope, defaulting to the most-abundant isotope.
+/// Ranges for different isotopes of the same element have independent counts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ElementRange {
     atom: Atom,
@@ -19,6 +20,25 @@ pub struct ElementRange {
 impl ElementRange {
     /// Creates a range with nonnegative counts and `min <= max`.
     pub fn new(symbol: &str, min: i32, max: i32) -> Result<Self, ElementRangeParseError> {
+        Self::from_symbol(symbol, None, min, max)
+    }
+
+    /// Creates a range for an explicitly selected isotope.
+    pub fn with_isotope(
+        symbol: &str,
+        mass_number: u16,
+        min: i32,
+        max: i32,
+    ) -> Result<Self, ElementRangeParseError> {
+        Self::from_symbol(symbol, Some(mass_number), min, max)
+    }
+
+    fn from_symbol(
+        symbol: &str,
+        mass_number: Option<u16>,
+        min: i32,
+        max: i32,
+    ) -> Result<Self, ElementRangeParseError> {
         if min < 0 || max < min {
             return Err(ElementRangeParseError::InvalidRange {
                 symbol: symbol.to_owned(),
@@ -26,26 +46,45 @@ impl ElementRange {
                 max,
             });
         }
-        if atomic_number_for_symbol(symbol).is_none() {
-            return Err(ElementRangeParseError::UnknownElement(symbol.to_owned()));
-        }
-        let isotope = most_abundant_isotope(symbol)
-            .ok_or_else(|| ElementRangeParseError::NoMostAbundantIsotope(symbol.to_owned()))?;
+        let atomic_number = atomic_number_for_symbol(symbol)
+            .ok_or_else(|| ElementRangeParseError::UnknownElement(symbol.to_owned()))?;
+        let isotope = match mass_number {
+            Some(mass_number) => {
+                let id = IsotopeId {
+                    atomic_number,
+                    mass_number,
+                };
+                if isotope_data(id).is_none() {
+                    return Err(ElementRangeParseError::UnknownIsotope {
+                        symbol: symbol.to_owned(),
+                        mass_number,
+                    });
+                }
+                id
+            }
+            None => most_abundant_isotope(symbol)
+                .ok_or_else(|| ElementRangeParseError::NoMostAbundantIsotope(symbol.to_owned()))?,
+        };
         Ok(Self {
-            atom: Atom::from_isotope_id(isotope, false),
+            atom: Atom::from_isotope_id(isotope, mass_number.is_some()),
             min,
             max,
         })
     }
 
     /// Parses inclusive bounds such as `C4-100` or a fixed count such as `Na1`.
-    /// Surrounding whitespace is ignored; isotope labels and groups are not accepted.
+    /// An isotope prefix selects that isotope, for example `^13C0-1` or `^13C1`.
+    /// Surrounding whitespace is ignored; groups are not accepted.
     pub fn parse(input: &str) -> Result<Self, ElementRangeParseError> {
         parser::parse_element_range(input)
     }
 
     pub fn symbol(&self) -> &'static str {
         self.atom.symbol()
+    }
+
+    pub fn atom(&self) -> Atom {
+        self.atom
     }
 
     pub fn min(&self) -> i32 {
@@ -116,7 +155,9 @@ impl std::fmt::Display for MassAssignmentError {
                 write!(f, "use Charge::Neutral instead of a zero-magnitude charge")
             }
             Self::EmptyElementRanges => write!(f, "at least one element range is required"),
-            Self::DuplicateElement(symbol) => write!(f, "element {symbol} has more than one range"),
+            Self::DuplicateElement(symbol) => {
+                write!(f, "element/isotope {symbol} has more than one range")
+            }
             Self::MassWindowOverflow => write!(
                 f,
                 "mass tolerance or charge produces a nonfinite mass window"
@@ -130,8 +171,10 @@ impl std::error::Error for MassAssignmentError {}
 /// Assigns formulas to one observed m/z (or a neutral mass with `Charge::Neutral`).
 ///
 /// Formulas describe the complete ion composition: no protons or other adducts
-/// are added automatically. Uses the same most-abundant isotopes and electron
+/// are added automatically. Uses the same isotope masses and electron
 /// correction as [`Formula::mass`] and [`Ion::mass_to_charge`].
+/// Explicit isotope ranges are independent of unlabelled ranges; no other
+/// isotope variants are generated automatically.
 ///
 /// All matches are returned, sorted by absolute error, then formula text for ties.
 /// Missing elements are forbidden, zero counts are omitted, and an empty formula
@@ -176,7 +219,7 @@ pub fn assign_mass(
     }
     let mut seen = std::collections::BTreeSet::new();
     for range in ranges {
-        if !seen.insert(range.atom.atomic_number()) {
+        if !seen.insert((range.atom.atomic_number(), range.atom.mass_number())) {
             return Err(MassAssignmentError::DuplicateElement(range.symbol()));
         }
     }
@@ -304,6 +347,91 @@ mod tests {
             .iter()
             .map(|hit| hit.ion.formula().to_string())
             .collect()
+    }
+
+    #[test]
+    fn assigns_only_explicitly_requested_isotopes_with_independent_bounds() {
+        let bounds = ranges(&["C2", "^13C0-1", "H1"]);
+        let formula = Formula::parse("C2^13CH").unwrap();
+        for charge in [Charge::Neutral, Charge::Positive(2), Charge::Negative(1)] {
+            let observed = Ion::new(formula.clone(), charge).mass_to_charge();
+            let matches = assign_mass(observed, charge, &bounds, MassTolerance::Da(0.0)).unwrap();
+            assert_eq!(formulas(&matches), ["C2^13CH"]);
+        }
+        let heavy_carbon = Formula::parse("^13C").unwrap();
+        assert!(
+            assign_mass(
+                heavy_carbon.mass(),
+                Charge::Neutral,
+                &ranges(&["C1"]),
+                MassTolerance::Da(0.0),
+            )
+            .unwrap()
+            .is_empty()
+        );
+        assert!(matches!(
+            assign_mass(
+                24.0,
+                Charge::Neutral,
+                &[
+                    ElementRange::new("C", 1, 1).unwrap(),
+                    ElementRange::with_isotope("C", 12, 1, 1).unwrap()
+                ],
+                MassTolerance::Da(0.0),
+            ),
+            Err(MassAssignmentError::DuplicateElement("C"))
+        ));
+    }
+
+    #[test]
+    fn explicit_isotope_ranges_match_exhaustive_enumeration() {
+        let bounds = ranges(&["C0-3", "^13C0-2", "H0-4"]);
+        let mut reference = Vec::new();
+        for c in 0..=3 {
+            for heavy in 0..=2 {
+                for h in 0..=4 {
+                    let text: String = [("C", c), ("^13C", heavy), ("H", h)]
+                        .iter()
+                        .filter(|(_, count)| *count > 0)
+                        .map(|(symbol, count)| format!("{symbol}{count}"))
+                        .collect();
+                    if !text.is_empty() {
+                        reference.push(Formula::parse(&text).unwrap());
+                    }
+                }
+            }
+        }
+        for charge in [Charge::Neutral, Charge::Positive(2), Charge::Negative(1)] {
+            for target in ["^13C", "C^13CH2", "C2^13C2H4"] {
+                let observed = Ion::new(Formula::parse(target).unwrap(), charge).mass_to_charge();
+                for tolerance in [
+                    MassTolerance::Da(0.0),
+                    MassTolerance::Da(0.005),
+                    MassTolerance::Ppm(5.0),
+                ] {
+                    let mut expected: Vec<_> = reference
+                        .iter()
+                        .filter_map(|formula| {
+                            let error =
+                                Ion::new(formula.clone(), charge).mass_to_charge() - observed;
+                            (error.abs() <= tolerance.absolute(observed).unwrap())
+                                .then(|| (error, formula.to_string()))
+                        })
+                        .collect();
+                    expected.sort_by(|a, b| {
+                        a.0.abs().total_cmp(&b.0.abs()).then_with(|| a.1.cmp(&b.1))
+                    });
+                    let expected: Vec<_> =
+                        expected.into_iter().map(|(_, formula)| formula).collect();
+                    let matches = assign_mass(observed, charge, &bounds, tolerance).unwrap();
+                    assert_eq!(
+                        formulas(&matches),
+                        expected,
+                        "{target} {charge:?} {tolerance:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -76,6 +76,8 @@ pub enum ElementRangeParseError {
     InvalidRange { symbol: String, min: i32, max: i32 },
     UnknownElement(String),
     NoMostAbundantIsotope(String),
+    UnknownIsotope { symbol: String, mass_number: u16 },
+    InvalidIsotopeNumber(String),
     DuplicateElement(&'static str),
 }
 
@@ -86,7 +88,7 @@ impl fmt::Display for ElementRangeParseError {
             Self::InvalidRangeSyntax(value) => {
                 write!(
                     f,
-                    "invalid element range {value:?}; expected a range such as C4-100 or a fixed count such as Na1"
+                    "invalid element range {value:?}; expected a range such as C4-100, a fixed count such as Na1, or an isotope range such as ^13C0-1"
                 )
             }
             Self::InvalidRange { symbol, min, max } => {
@@ -96,7 +98,24 @@ impl fmt::Display for ElementRangeParseError {
             Self::NoMostAbundantIsotope(symbol) => {
                 write!(f, "no most-abundant isotope is available for {symbol}")
             }
-            Self::DuplicateElement(symbol) => write!(f, "element {symbol} has more than one range"),
+            Self::UnknownIsotope {
+                symbol,
+                mass_number,
+            } => {
+                write!(
+                    f,
+                    "isotope {mass_number}{symbol} is not in the isotope table"
+                )
+            }
+            Self::InvalidIsotopeNumber(value) => {
+                write!(
+                    f,
+                    "isotope mass number {value} is outside the supported range"
+                )
+            }
+            Self::DuplicateElement(symbol) => {
+                write!(f, "element/isotope {symbol} has more than one range")
+            }
         }
     }
 }
@@ -111,10 +130,26 @@ pub fn parse_formula(input: &str) -> Result<Formula, FormulaParseError> {
 
 /// Parses inclusive bounds such as `C4-100` or a fixed count such as `Na1`.
 /// A fixed count sets both bounds to that count; zero counts are allowed.
-/// Surrounding whitespace is ignored; isotope labels and groups are not accepted.
+/// Supports explicit isotope prefixes, for example `^13C0-1` or `^13C1`.
+/// Surrounding whitespace is ignored; groups are not accepted.
 pub fn parse_element_range(input: &str) -> Result<ElementRange, ElementRangeParseError> {
     let value = input.trim();
     let invalid = || ElementRangeParseError::InvalidRangeSyntax(input.to_owned());
+    let (mass_number, value) = if let Some(rest) = value.strip_prefix('^') {
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .ok_or_else(invalid)?;
+        if end == 0 {
+            return Err(invalid());
+        }
+        let number = &rest[..end];
+        let mass_number = number
+            .parse::<u16>()
+            .map_err(|_| ElementRangeParseError::InvalidIsotopeNumber(number.to_owned()))?;
+        (Some(mass_number), &rest[end..])
+    } else {
+        (None, value)
+    };
     let count_start = value
         .find(|c: char| c.is_ascii_digit())
         .ok_or_else(invalid)?;
@@ -127,15 +162,17 @@ pub fn parse_element_range(input: &str) -> Result<ElementRange, ElementRangePars
     {
         return Err(invalid());
     }
-    ElementRange::new(
-        symbol,
-        min.parse().map_err(|_| invalid())?,
-        max.parse().map_err(|_| invalid())?,
-    )
+    let min = min.parse().map_err(|_| invalid())?;
+    let max = max.parse().map_err(|_| invalid())?;
+    match mass_number {
+        Some(number) => ElementRange::with_isotope(symbol, number, min, max),
+        None => ElementRange::new(symbol, min, max),
+    }
 }
 
 /// Parses comma- or whitespace-separated element ranges and fixed counts.
-/// Requires at least one range and rejects duplicate elements.
+/// Requires at least one range and rejects duplicate isotope identities,
+/// including aliases such as `C` and `^12C`. Different isotopes have independent bounds.
 pub fn parse_element_ranges(input: &str) -> Result<Vec<ElementRange>, ElementRangeParseError> {
     let mut ranges = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
@@ -144,7 +181,8 @@ pub fn parse_element_ranges(input: &str) -> Result<Vec<ElementRange>, ElementRan
         .filter(|value| !value.is_empty())
     {
         let range = parse_element_range(value)?;
-        if !seen.insert(range.symbol()) {
+        let atom = range.atom();
+        if !seen.insert((atom.atomic_number(), atom.mass_number())) {
             return Err(ElementRangeParseError::DuplicateElement(range.symbol()));
         }
         ranges.push(range);
@@ -373,6 +411,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_explicit_isotope_ranges_and_fixed_counts() {
+        let range = parse_element_range(" ^13C0-1 ").unwrap();
+        assert_eq!(range, ElementRange::with_isotope("C", 13, 0, 1).unwrap());
+        assert_eq!(range.atom().mass_number(), 13);
+        assert!(range.atom().isotope_was_specified());
+        assert_eq!(parse_element_range("^13C1").unwrap().min(), 1);
+        assert_eq!(parse_element_range("^13C10").unwrap().max(), 10);
+        assert_eq!(
+            parse_element_range("^99Tc1").unwrap().atom().mass_number(),
+            99
+        );
+    }
+
+    #[test]
+    fn distinguishes_isotopes_but_rejects_duplicate_isotope_identities() {
+        assert_eq!(parse_element_ranges("C4-100 ^13C0-1").unwrap().len(), 2);
+        for input in ["C1 ^12C1", "^12C1 C1", "^13C0-1 ^13C1", "D1 ^2H1"] {
+            assert!(
+                matches!(
+                    parse_element_ranges(input),
+                    Err(ElementRangeParseError::DuplicateElement(_))
+                ),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_isotopes_invalid_mass_numbers_and_reversed_bounds() {
+        assert!(matches!(
+            parse_element_range("^999C1"),
+            Err(ElementRangeParseError::UnknownIsotope {
+                mass_number: 999,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse_element_range("^65536C1"),
+            Err(ElementRangeParseError::InvalidIsotopeNumber(_))
+        ));
+        assert!(matches!(
+            parse_element_range("^13C10-1"),
+            Err(ElementRangeParseError::InvalidRange {
+                min: 10,
+                max: 1,
+                ..
+            })
+        ));
+        for value in [
+            "^C1",
+            "^13",
+            "^13C",
+            "^13C-1",
+            "^13C1-",
+            "13C1",
+            "^13C0-2147483648",
+        ] {
+            assert!(parse_element_range(value).is_err(), "{value}");
+        }
+    }
+
+    #[test]
     fn parses_range_lists_with_commas_spaces_and_newlines() {
         let ranges = parse_element_ranges(" C4-100, H8-100\nO2-100\tCl0-2 ").unwrap();
         let values: Vec<_> = ranges
@@ -469,7 +569,6 @@ mod tests {
             "Na-1",
             "Na1.5",
             "Na1-",
-            "^13C0-2",
             "Me0-2",
         ] {
             assert!(parse_element_range(value).is_err(), "{value}");

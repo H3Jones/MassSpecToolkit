@@ -44,6 +44,8 @@ pub struct MassSplitResult {
 #[derive(Serialize, Tsify)]
 pub struct ElementRangeResult {
     symbol: &'static str,
+    mass_number: u16,
+    isotope_was_specified: bool,
     min: i32,
     max: i32,
 }
@@ -315,6 +317,8 @@ pub fn mass_split(formula_a: &str, formula_b: &str) -> Result<Ts<MassSplitResult
 fn element_range_result(range: &ElementRange) -> ElementRangeResult {
     ElementRangeResult {
         symbol: range.symbol(),
+        mass_number: range.atom().mass_number(),
+        isotope_was_specified: range.atom().isotope_was_specified(),
         min: range.min(),
         max: range.max(),
     }
