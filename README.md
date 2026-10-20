@@ -2,6 +2,8 @@
 
 Mass spectrometry tools built with Rust, WebAssembly, TypeScript, and Python.
 
+Web app is available at https://h3jones.github.io/MassSpecToolkit/
+
 ## Structure
 
 - `crates/ms-core` — Rust mass spectrometry calculations.
@@ -20,3 +22,5 @@ A number of the components can be seen in the playground
 ```sh
 just run-playground
 ```
+
+## Static Site
