@@ -17,8 +17,8 @@ const template = document.createElement("template");
 template.innerHTML = `
   <style>
     ${commonUiStyles}
-    :host { min-width: 0; }
-    form { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+    :host { min-width: 0; container-type: inline-size; }
+    form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
     label { font-size: 0.9em; min-width: 0; }
     input, select, textarea { width: 100%; min-width: 0; color: inherit; }
     select, textarea { box-sizing: border-box; padding: 0.4rem; font: inherit; }
@@ -31,6 +31,12 @@ template.innerHTML = `
     ms-table { display: block; max-width: 100%; overflow-x: auto; }
     .error { margin: 0.75rem 0; }
     [hidden] { display: none !important; }
+    @container (min-width: 36rem) {
+      form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @container (min-width: 60rem) {
+      form { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
   </style>
   <form part="form">
     <label>Mass (m/z)
