@@ -350,7 +350,7 @@ function App() {
                   Component documentation <ArrowUpRight className="size-4" />
                 </a>
               </div>
-              <div className="mt-10 grid gap-5 md:grid-cols-3">
+              <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
                 {tools.map((tool) => {
                   const { number, icon: Icon, name, description, example, detail } = tool;
                   return (

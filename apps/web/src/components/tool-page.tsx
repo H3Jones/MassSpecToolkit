@@ -21,6 +21,10 @@ const calculators = {
     await import("ms-toolkit/fine-isotope-structure");
     return { default: Calculator };
   }),
+  "peak-assignment": lazy(async () => {
+    await import("ms-toolkit/peak-assignment");
+    return { default: Calculator };
+  }),
 };
 
 export default function ToolPage({ tool }: { tool: Tool }) {

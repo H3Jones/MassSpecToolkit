@@ -20,6 +20,9 @@ export default defineConfig({
           import.meta.url,
         ),
       ),
+      "ms-toolkit/peak-assignment": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/peak-assignment.ts", import.meta.url),
+      ),
     },
   },
   server: {

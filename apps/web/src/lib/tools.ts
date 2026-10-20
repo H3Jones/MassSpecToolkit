@@ -1,4 +1,4 @@
-import { FlaskConical, GitCompareArrows, Waves } from "lucide-react";
+import { FlaskConical, GitCompareArrows, ScanSearch, Waves } from "lucide-react";
 
 export const tools = [
   {
@@ -6,8 +6,7 @@ export const tools = [
     number: "01",
     icon: FlaskConical,
     name: "Ion calculator",
-    description:
-      "Calculate formula mass, mass-to-charge ratio (m/z), and degree of unsaturation",
+    description: "Calculate formula mass, mass-to-charge ratio (m/z), and degree of unsaturation",
     example: "C6H12O6",
     detail: "Mass and m/z",
     tag: "ms-ion-calculator",
@@ -48,6 +47,29 @@ export const tools = [
       "Enter a molecular formula. Leave charge blank, or use 0, for a neutral distribution plotted against mass in Da. A nonzero charge plots m/z with electron-mass correction.",
       "Peak intensities are normalized to the most abundant peak (100%). The table lists isotope assignments and supports sorting and pagination; the spectrum supports zooming and panning.",
       "Calculations first attempt full probability coverage. If the 200,000-state limit is exceeded, coverage is retried at 99.99%, 99.9%, and 99%. The result reports retained probability; sufficiently large distributions may still exceed the limit.",
+    ],
+  },
+  {
+    id: "peak-assignment",
+    number: "04",
+    icon: ScanSearch,
+    name: "Peak assignment",
+    description: "Search element and charge ranges to assign formulas to a measured mass.",
+    example: "180.06284 m/z ± 5 ppm",
+    detail: "Formula assignment",
+    tag: "ms-peak-assignment",
+    attributes: {
+      mass: "180.06284",
+      error: "5",
+      "error-unit": "ppm",
+      "charge-min": "1",
+      "charge-max": "1",
+      "element-ranges": "C4-100 H8-100 O2-100",
+    },
+    notes: [
+      "Enter the observed m/z, its allowed mass error, and an inclusive signed charge range. Zero charge is excluded, and the mass is interpreted as observed m/z.",
+      "Define inclusive element-count ranges; a single count such as Na1 fixes that count. Only listed elements and isotopes are searched, and unlabelled ranges use each element's most-abundant isotope.",
+      "All matches are returned without chemical filtering. Wide ranges can take substantial time and memory.",
     ],
   },
 ] as const;
