@@ -3,6 +3,7 @@ pub mod formula;
 pub mod ion;
 pub mod isotopes;
 pub mod parser;
+pub mod spectrum;
 
 pub const ELECTRON_MASS: f64 = 0.000548579909065; // in atomic mass units (u)
 
