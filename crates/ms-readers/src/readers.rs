@@ -1,3 +1,6 @@
-//! Software-specific readers.
+//! Format-specific readers.
 //!
-//! Add a module here for each supported export format, gated by its Cargo feature.
+//! Each reader is gated by its Cargo feature.
+
+#[cfg(feature = "asc")]
+pub mod asc;

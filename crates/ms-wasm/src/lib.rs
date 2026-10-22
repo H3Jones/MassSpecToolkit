@@ -99,6 +99,19 @@ pub struct FineIsotopeDistributionResult {
 }
 
 #[derive(Serialize, Tsify)]
+#[tsify(missing_as_null)]
+pub struct SpectrumPeakResult {
+    mz: f64,
+    intensity: f64,
+    signal_to_noise: Option<f64>,
+}
+
+#[derive(Serialize, Tsify)]
+pub struct MassSpectrumResult {
+    peaks: Vec<SpectrumPeakResult>,
+}
+
+#[derive(Serialize, Tsify)]
 struct AtomCount {
     symbol: &'static str,
     mass_number: u16,
@@ -114,6 +127,25 @@ pub fn parse_formula(input: &str) -> Result<Ts<FormulaResult>, JsError> {
     let formula = Formula::parse(input).map_err(|error| JsError::new(&error.to_string()))?;
     let result = formula_result(&formula);
 
+    Ok(result.into_ts()?)
+}
+
+/// Reads a three-column ASC peak list without sorting or normalizing the peaks.
+#[wasm_bindgen]
+pub fn parse_asc(input: &str) -> Result<Ts<MassSpectrumResult>, JsError> {
+    let spectrum = ms_readers::readers::asc::read(input.as_bytes())
+        .map_err(|error| JsError::new(&error.to_string()))?;
+    let result = MassSpectrumResult {
+        peaks: spectrum
+            .peaks()
+            .iter()
+            .map(|peak| SpectrumPeakResult {
+                mz: peak.mz(),
+                intensity: peak.intensity(),
+                signal_to_noise: peak.signal_to_noise(),
+            })
+            .collect(),
+    };
     Ok(result.into_ts()?)
 }
 
