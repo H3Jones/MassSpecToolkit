@@ -3,6 +3,7 @@ import init, {
   evaluate_ion,
   fine_isotope_distribution,
   mass_split,
+  parse_asc,
   parse_formula,
   parse_element_ranges,
 } from "../generated/wasm/ms_wasm.js";
@@ -11,6 +12,7 @@ import type {
   FineIsotopeDistributionResult,
   FormulaResult,
   IonResult,
+  MassSpectrumResult,
   MassSplitResult,
   MassToleranceUnit,
   PeakAssignmentResult,
@@ -29,6 +31,15 @@ function toError(error: unknown): Error {
 
 /** Typed wrapper around the wasm module. Initialises it lazily on first use. */
 export const api = {
+  async parseAsc(input: string): Promise<MassSpectrumResult> {
+    await ensureInit();
+    try {
+      return parse_asc(input);
+    } catch (error) {
+      throw toError(error);
+    }
+  },
+
   async parseElementRanges(input: string): Promise<ElementRangeResult[]> {
     await ensureInit();
     try {

@@ -5,8 +5,10 @@ export type {
   FineIsotopePeakResult,
   FormulaResult,
   IonResult,
+  MassSpectrumResult,
   MassSplitResult,
   MassToleranceUnit,
   PeakAssignmentMatchResult,
   PeakAssignmentResult,
+  SpectrumPeakResult,
 } from "../generated/wasm/ms_wasm.js";

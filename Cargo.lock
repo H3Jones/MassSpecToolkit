@@ -248,6 +248,7 @@ name = "ms-wasm"
 version = "0.1.0"
 dependencies = [
  "ms-core",
+ "ms-readers",
  "serde",
  "tsify",
  "wasm-bindgen",

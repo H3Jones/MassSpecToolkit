@@ -14,6 +14,17 @@ export default defineConfig({
     },
   },
   worker: { format: "es" },
+  build: {
+    outDir: "dist",
+    emptyOutDir: false,
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      input: src("core/worker.ts"),
+      output: {
+        entryFileNames: "worker.js",
+      },
+    },
+  },
   pack: {
     entry: {
       index: src("index.ts"),

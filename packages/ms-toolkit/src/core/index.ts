@@ -8,10 +8,12 @@ export type {
   FineIsotopePeakResult,
   FormulaResult,
   IonResult,
+  MassSpectrumResult,
   MassSplitResult,
   MassToleranceUnit,
   PeakAssignmentMatchResult,
   PeakAssignmentResult,
+  SpectrumPeakResult,
 } from "./types.ts";
 export type { MsApi } from "./wasm.ts";
 export {
@@ -24,8 +26,8 @@ export {
 
 let client: Remote<MsApi> | undefined;
 
-/** Returns a shared client that runs the wasm calculator in a web worker. */
+/** Returns a shared client that runs the wasm API in a web worker. */
 export function getClient(): Remote<MsApi> {
-  client ??= wrap<MsApi>(new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }));
+  client ??= wrap<MsApi>(new Worker(new URL("./worker.js", import.meta.url), { type: "module" }));
   return client;
 }

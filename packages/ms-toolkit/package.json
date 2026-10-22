@@ -54,7 +54,7 @@
   "scripts": {
     "wasm": "wasm-pack build ../../crates/ms-wasm --target web --out-dir ../../packages/ms-toolkit/src/generated/wasm",
     "dev": "vp dev playground --config vite.config.ts",
-    "build": "vp run wasm && vp pack --from-vite",
+    "build": "vp run wasm && vp pack --from-vite && vp build",
     "build:browser": "vp build --config vite.browser.config.ts",
     "test": "vp test",
     "check": "vp check"
