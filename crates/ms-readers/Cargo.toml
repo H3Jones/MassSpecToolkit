@@ -1,0 +1,10 @@
+[package]
+name = "ms-readers"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ms-core = { path = "../ms-core" }
+
+[features]
+default = []

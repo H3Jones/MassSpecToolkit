@@ -237,6 +237,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ms-readers"
+version = "0.1.0"
+dependencies = [
+ "ms-core",
+]
+
+[[package]]
 name = "ms-wasm"
 version = "0.1.0"
 dependencies = [
