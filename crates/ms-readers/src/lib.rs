@@ -1,6 +1,8 @@
-//! Readers for assignment exports from mass-spectrometry software.
+//! Readers for spectra and assignment exports from mass-spectrometry software.
 //!
-//! Each format-specific reader will be enabled by its own Cargo feature and
-//! will convert its input into the shared types provided by `ms-core`.
+//! Each reader is enabled by its own Cargo feature and converts its input into
+//! the shared types provided by `ms-core`. The `txt` feature provides configurable
+//! text peak lists and format guessing; `asc` retains the fixed three-column
+//! m/z, intensity, and signal-to-noise reader.
 
 pub mod readers;
