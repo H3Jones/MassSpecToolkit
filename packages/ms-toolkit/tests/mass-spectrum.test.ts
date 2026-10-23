@@ -194,7 +194,12 @@ describe("viewport peak selection", () => {
         [20, 30],
         [0, 46.2],
       ] as const) {
-        chart.dispatchAction({ type: "dataZoom", startValue: domain[0], endValue: domain[1] });
+        chart.dispatchAction({
+          type: "dataZoom",
+          dataZoomId: "mz-inside",
+          startValue: domain[0],
+          endValue: domain[1],
+        });
         const coordinates = domain.map((value) => chart.convertToPixel({ xAxisIndex: 0 }, value));
         const selection = selectSpectrumPeaks(data, domain);
         chart.setOption(
@@ -207,6 +212,8 @@ describe("viewport peak selection", () => {
         expect(chart.getOption().dataZoom).toMatchObject([
           { startValue: domain[0], endValue: domain[1] },
           { startValue: domain[0], endValue: domain[1] },
+          { id: "intensity-inside" },
+          { id: "intensity-slider" },
         ]);
       }
     },
@@ -374,6 +381,8 @@ describe("mass spectrum chart", () => {
     expect(chart.getOption().dataZoom).toMatchObject([
       { startValue: 50, endValue: 58 },
       { startValue: 50, endValue: 58 },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
     expect(chart.getOption().series).toMatchObject([
       { data: [{ value: [57, 250] }] },
@@ -402,7 +411,10 @@ describe("mass spectrum chart", () => {
       axisLabel: { color: "#f1f5f9" },
     });
     expect(option.yAxis).toMatchObject({ axisLabel: { color: "#f1f5f9" } });
-    expect(option.toolbox).toMatchObject({ iconStyle: { borderColor: "#f1f5f9" } });
+    expect(option.toolbox).toMatchObject({
+      iconStyle: { borderColor: "#f1f5f9" },
+      emphasis: { iconStyle: { borderColor: "#f1f5f9" } },
+    });
     expect(render(option).renderToSVGString()).toContain('fill="#f1f5f9"');
   });
 
@@ -414,15 +426,94 @@ describe("mass spectrum chart", () => {
         filterMode: "none",
       },
       { type: "slider", xAxisIndex: 0, filterMode: "none", showDataShadow: false },
+      {
+        id: "intensity-inside",
+        type: "inside",
+        yAxisIndex: 0,
+        filterMode: "none",
+        zoomOnMouseWheel: "shift",
+      },
+      {
+        id: "intensity-slider",
+        type: "slider",
+        yAxisIndex: 0,
+        filterMode: "none",
+        orient: "vertical",
+        showDataShadow: false,
+      },
     ]);
     const chart = render(createMassSpectrumChart(peaks));
-    chart.dispatchAction({ type: "dataZoom", startValue: 50, endValue: 58 });
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "mz-inside",
+      startValue: 50,
+      endValue: 58,
+    });
     expect(chart.getOption().dataZoom).toMatchObject([
       { startValue: 50, endValue: 58 },
       { startValue: 50, endValue: 58 },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
     expect(chart.getOption().series).toMatchObject([
       { data: [{ value: [43, 100] }, { value: [57, 25] }] },
+    ]);
+  });
+
+  it("zooms intensity independently and preserves that range on m/z viewport updates", () => {
+    const data = normalizeSpectrumPeaks(peaks);
+    const chart = render(createMassSpectrumChart(data));
+    const mzPixel = chart.convertToPixel({ xAxisIndex: 0 }, 57);
+    const intensityPixel = chart.convertToPixel({ yAxisIndex: 0 }, 25);
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "intensity-inside",
+      startValue: 0,
+      endValue: 50,
+    });
+    expect(chart.convertToPixel({ xAxisIndex: 0 }, 57)).toBe(mzPixel);
+    expect(chart.convertToPixel({ yAxisIndex: 0 }, 25)).not.toBe(intensityPixel);
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 0, endValue: 59.85 },
+      { startValue: 0, endValue: 59.85 },
+      { id: "intensity-inside", startValue: 0, endValue: 50 },
+      { id: "intensity-slider", startValue: 0, endValue: 50 },
+    ]);
+
+    const selection = selectSpectrumPeaks(data, [0, 105]);
+    chart.setOption(createSpectrumViewportUpdate(data, selection.indices, "relative", [0, 105]));
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 0, endValue: 59.85 },
+      { startValue: 0, endValue: 59.85 },
+      { id: "intensity-inside", startValue: 0, endValue: 50 },
+      { id: "intensity-slider", startValue: 0, endValue: 50 },
+    ]);
+  });
+
+  it("fully restores both axes after zooming them independently", () => {
+    const chart = render(createMassSpectrumChart(peaks));
+    const initialMzPixel = chart.convertToPixel({ xAxisIndex: 0 }, 57);
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "mz-inside",
+      startValue: 50,
+      endValue: 58,
+    });
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "intensity-inside",
+      startValue: 0,
+      endValue: 50,
+    });
+    expect(chart.convertToPixel({ xAxisIndex: 0 }, 57)).not.toBe(initialMzPixel);
+
+    chart.dispatchAction({ type: "restore" });
+    expect(chart.convertToPixel({ xAxisIndex: 0 }, 57)).toBe(initialMzPixel);
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { id: "mz-inside", startValue: 0, endValue: 59.85 },
+      { id: "mz-slider", startValue: 0, endValue: 59.85 },
+      { id: "intensity-inside", startValue: 0, endValue: 110 },
+      { id: "intensity-slider", startValue: 0, endValue: 110 },
     ]);
   });
 
@@ -435,6 +526,8 @@ describe("mass spectrum chart", () => {
     expect(chart.getOption().dataZoom).toMatchObject([
       { type: "inside", zoomOnMouseWheel: true, moveOnMouseMove: true },
       { type: "slider" },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
   });
 
@@ -452,15 +545,18 @@ describe("mass spectrum chart", () => {
     expect(render(option).getOption().dataZoom).toMatchObject([
       { cursorGrab: cursor, cursorGrabbing: cursor },
       { type: "slider" },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
   });
 
-  it("places native area zoom and undo on the right, restricted to the m/z axis", () => {
+  it("places native area zoom and undo on the right for both axes", () => {
     const option = createMassSpectrumChart(peaks);
     expect(option.toolbox).toMatchObject({
       right: 25,
-      feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
+      feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: 0, filterMode: "none" } },
     });
+    expect(option.toolbox).toHaveProperty("feature.restore");
     expect(option.toolbox).not.toHaveProperty("left");
     const chart = render(option);
     chart.dispatchAction({
@@ -549,6 +645,8 @@ describe("mass spectrum chart", () => {
     expect(render(chart).getOption().dataZoom).toMatchObject([
       { startValue: 50, endValue: 55 },
       { startValue: 50, endValue: 55 },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
   });
 
@@ -562,16 +660,30 @@ describe("mass spectrum chart", () => {
         { mzDomain: [45.5, 56.5] },
       ),
     );
-    chart.dispatchAction({ type: "dataZoom", startValue: 46.04184, endValue: 46.04188 });
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "mz-inside",
+      startValue: 46.04184,
+      endValue: 46.04188,
+    });
     expect(chart.getOption().dataZoom).toMatchObject([
       { startValue: 46.04184, endValue: 46.04188 },
       { startValue: 46.04184, endValue: 46.04188 },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
     expect(chart.renderToSVGString()).not.toMatch(/NaN|Infinity/);
-    chart.dispatchAction({ type: "dataZoom", startValue: 45.5, endValue: 56.5 });
+    chart.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "mz-inside",
+      startValue: 45.5,
+      endValue: 56.5,
+    });
     expect(chart.getOption().dataZoom).toMatchObject([
       { startValue: 45.5, endValue: 56.5 },
       { startValue: 45.5, endValue: 56.5 },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
   });
 
@@ -585,6 +697,8 @@ describe("mass spectrum chart", () => {
     expect(render(chart).getOption().dataZoom).toMatchObject([
       { startValue: domain[0], endValue: domain[1] },
       { startValue: domain[0], endValue: domain[1] },
+      { id: "intensity-inside" },
+      { id: "intensity-slider" },
     ]);
   });
 

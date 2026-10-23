@@ -191,6 +191,10 @@
     font-size: 0.875rem;
   }
 
+  .spectrum-chart {
+    color: var(--foreground);
+  }
+
   .spectrum-chart::part(status),
   .spectrum-table::part(error) {
     color: var(--destructive);

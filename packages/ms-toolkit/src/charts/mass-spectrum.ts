@@ -274,11 +274,15 @@ export function createPreparedMassSpectrumChart(
   const option: MassSpectrumChartOption = {
     animation: false,
     aria: { enabled: true },
-    grid: { left: 75, right: 25, top: 45, bottom: 90 },
+    grid: { left: 75, right: 55, top: 45, bottom: 90 },
     toolbox: {
       right: 25,
       iconStyle: { borderColor: textColor },
-      feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
+      emphasis: { iconStyle: { borderColor: textColor } },
+      feature: {
+        dataZoom: { xAxisIndex: 0, yAxisIndex: 0, filterMode: "none" },
+        restore: {},
+      },
     },
     xAxis: {
       type: "value",
@@ -318,6 +322,26 @@ export function createPreparedMassSpectrumChart(
         cursorGrabbing: plotCursor,
       },
       { ...zoom, id: "mz-slider", type: "slider", bottom: 8, height: 22, showDataShadow: false },
+      {
+        id: "intensity-inside",
+        type: "inside",
+        yAxisIndex: 0,
+        filterMode: "none",
+        zoomOnMouseWheel: "shift",
+        moveOnMouseMove: false,
+      },
+      {
+        id: "intensity-slider",
+        type: "slider",
+        yAxisIndex: 0,
+        filterMode: "none",
+        orient: "vertical",
+        right: 8,
+        top: 45,
+        bottom: 90,
+        width: 18,
+        showDataShadow: false,
+      },
     ],
     series: [
       {

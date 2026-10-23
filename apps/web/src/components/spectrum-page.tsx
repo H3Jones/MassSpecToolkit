@@ -124,8 +124,10 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
               : "Intensities use the original values and units from the imported file, without normalization."}
           </p>
           <p className="text-sm text-muted-foreground">
-            Zoom and pan to inspect the spectrum; press Home in the chart to reset, +/- to zoom, and
-            arrow keys to inspect peaks. The peak list below always shows both intensity scales.
+            Use the chart&apos;s built-in zoom, undo, and restore controls; Home also restores both
+            axes. Press +/- to zoom m/z and use the arrow keys to inspect peaks. <br /> The peak
+            list below includes both original and relative intensities regardless of the selected
+            chart scale.
           </p>
         </CardHeader>
         <CardContent className="min-w-0">

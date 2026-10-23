@@ -199,6 +199,7 @@ export class MsMassSpectrum extends HTMLElement {
           height,
         });
         this.#host.on("datazoom", () => this.#syncZoom());
+        this.#host.on("restore", () => this.#syncZoom());
         this.#resizeObserver = new ResizeObserver(() => {
           if (this.#container.clientWidth > 0) {
             this.#host?.resize({ width: this.#container.clientWidth });
@@ -222,7 +223,7 @@ export class MsMassSpectrum extends HTMLElement {
       this.#intensityMode === "absolute"
         ? "Absolute intensities in the original input units."
         : "Intensities normalized to the dataset's base peak at 100%.";
-    const description = `${this.#data.length} peaks. ${showing} ${intensityDescription} Use the mouse wheel or pinch to zoom, the area zoom tool to select an m/z section, drag or the range slider to pan, plus and minus to zoom, Home to reset, and arrow keys to inspect displayed peaks.`;
+    const description = `${this.#data.length} peaks. ${showing} ${intensityDescription} Use the mouse wheel or pinch to zoom the m/z axis, Shift+wheel or the vertical range slider to zoom intensity, the area zoom tool to select an m/z and intensity section, drag or the m/z range slider to pan, plus and minus to zoom m/z, Home or the restore control to reset both axes, and arrow keys to inspect displayed peaks.`;
     const label = `${this.#chartTitle}. ${description}`;
     this.#container.setAttribute("aria-label", label);
     this.#container.setAttribute("aria-description", description);
@@ -310,7 +311,18 @@ export class MsMassSpectrum extends HTMLElement {
   #setZoom(domain?: readonly [number, number]): void {
     if (!domain || !this.#host) return;
     this.#host.dispatchAction({ type: "hideTip" });
-    this.#host.dispatchAction({ type: "dataZoom", startValue: domain[0], endValue: domain[1] });
+    this.#host.dispatchAction({
+      type: "dataZoom",
+      dataZoomId: "mz-inside",
+      startValue: domain[0],
+      endValue: domain[1],
+    });
+  }
+
+  #resetZoom(): void {
+    if (!this.#defaultMzDomain || !this.#host) return;
+    this.#host.dispatchAction({ type: "hideTip" });
+    this.#host.dispatchAction({ type: "restore" });
   }
 
   #handleKeydown(event: KeyboardEvent): void {
@@ -318,7 +330,7 @@ export class MsMassSpectrum extends HTMLElement {
     if (event.key === "+" || event.key === "=" || event.key === "-") {
       this.#zoomBy(event.key === "-" ? 2 : 0.5);
     } else if (event.key === "Home") {
-      this.#setZoom(this.#defaultMzDomain);
+      this.#resetZoom();
     } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
       if (this.#selectionFrame !== undefined) {
         cancelAnimationFrame(this.#selectionFrame);
