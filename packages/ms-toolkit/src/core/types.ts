@@ -11,6 +11,8 @@ export type {
   PeakAssignmentMatchResult,
   PeakAssignmentResult,
   SpectrumPeakResult,
+  SpectrumMetadata,
+  SpectrumType,
   TxtDelimiter,
   TxtFormat,
 } from "../generated/wasm/ms_wasm.js";

@@ -1,31 +1,84 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { TxtFormat } from "ms-toolkit/core";
+import type { SpectrumMetadata, SpectrumPeakResult, TxtFormat } from "ms-toolkit/core";
 import { readSpectrumFile } from "./spectrum";
+import { openSpectrumDatabase } from "./spectrum-database";
 
 const { parseTxt } = vi.hoisted(() => ({ parseTxt: vi.fn() }));
 vi.mock("ms-toolkit/core", () => ({
   callClient: (request: (client: { parseTxt: typeof parseTxt }) => Promise<unknown>) =>
     request({ parseTxt }),
 }));
+vi.mock("./spectrum-database", () => ({ openSpectrumDatabase: vi.fn() }));
+
+function mockParsedPeaks(peaks: readonly SpectrumPeakResult[]) {
+  parseTxt.mockImplementation(async (_text, _spec, filename: string) => {
+    const retentionTimes = peaks.flatMap((peak) =>
+      peak.retention_time === undefined ? [] : [peak.retention_time],
+    );
+    const metadata: SpectrumMetadata = {
+      filename,
+      type: retentionTimes.length ? "Hyphenated" : "Direct",
+      peakCount: peaks.length,
+      minimumMz: Math.min(...peaks.map((peak) => peak.mz)),
+      maximumMz: Math.max(...peaks.map((peak) => peak.mz)),
+      minimumIntensity: Math.min(...peaks.map((peak) => peak.intensity)),
+      maximumIntensity: Math.max(...peaks.map((peak) => peak.intensity)),
+      minimumRetentionTime: retentionTimes.length ? Math.min(...retentionTimes) : null,
+      maximumRetentionTime: retentionTimes.length ? Math.max(...retentionTimes) : null,
+    };
+    return { peaks, metadata };
+  });
+}
 
 beforeEach(() => {
   parseTxt.mockReset();
+  vi.mocked(openSpectrumDatabase).mockReset();
+  vi.mocked(openSpectrumDatabase).mockImplementation(async (peaks, metadata) => ({
+    metadata,
+    queryPeaks: async () => peaks.map((peak, id) => ({ ...peak, id })),
+    dispose: vi.fn(),
+  }));
 });
 
 describe("spectrum imports", () => {
+  it("logs file-read, parser, and import durations without logging file contents", async () => {
+    mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null }]);
+    const file = new File(["43 100"], "timed.asc");
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    try {
+      await readSpectrumFile(file);
+      expect(debug).toHaveBeenNthCalledWith(
+        1,
+        "[ms-toolkit] Spectrum file read",
+        expect.objectContaining({ bytes: file.size, durationMs: expect.any(Number) }),
+      );
+      expect(debug).toHaveBeenNthCalledWith(
+        2,
+        "[ms-toolkit] Spectrum file parsed",
+        expect.objectContaining({ peakCount: 1, durationMs: expect.any(Number) }),
+      );
+      expect(debug).toHaveBeenNthCalledWith(
+        3,
+        "[ms-toolkit] Spectrum import complete",
+        expect.objectContaining({ peakCount: 1, durationMs: expect.any(Number) }),
+      );
+      expect(JSON.stringify(debug.mock.calls)).not.toContain("43 100");
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
   it("imports text formats case-insensitively and preserves measurements and duplicate peak identities", async () => {
-    parseTxt.mockResolvedValue({
-      peaks: [
-        { mz: 57, intensity: 250, signal_to_noise: null },
-        { mz: 43, intensity: 1000, signal_to_noise: null },
-        { mz: 57, intensity: 500, signal_to_noise: null },
-      ],
-    });
+    mockParsedPeaks([
+      { mz: 57, intensity: 250, signal_to_noise: null },
+      { mz: 43, intensity: 1000, signal_to_noise: null },
+      { mz: 57, intensity: 500, signal_to_noise: null },
+    ]);
     const file = new File(["57 250 0\n43 1000 10\n57 500 1"], "example.ASC");
     const dataset = await readSpectrumFile(file);
-    expect(parseTxt).toHaveBeenCalledWith(await file.text(), undefined);
+    expect(parseTxt).toHaveBeenCalledWith(await file.text(), undefined, file.name);
     expect(dataset).toMatchObject({
-      filename: "example.ASC",
+      metadata: { filename: "example.ASC", type: "Direct" },
       format: "Text",
       peaks: [
         { id: 0, mz: 57, intensity: 250, relativeIntensity: 25, signal_to_noise: null },
@@ -52,18 +105,16 @@ describe("spectrum imports", () => {
       signal_to_noise_column: null,
     };
     await readSpectrumFile(file, spec);
-    expect(parseTxt).toHaveBeenLastCalledWith(await file.text(), spec);
+    expect(parseTxt).toHaveBeenLastCalledWith(await file.text(), spec, file.name);
   });
 
   it.each([0, 1000])(
     "reports tied base peaks without replacing the first peak (%s)",
     async (intensity) => {
-      parseTxt.mockResolvedValue({
-        peaks: [
-          { mz: 2, intensity, signal_to_noise: 0 },
-          { mz: 1, intensity, signal_to_noise: 0 },
-        ],
-      });
+      mockParsedPeaks([
+        { mz: 2, intensity, signal_to_noise: 0 },
+        { mz: 1, intensity, signal_to_noise: 0 },
+      ]);
       const dataset = await readSpectrumFile(new File([""], "tied.asc"));
       expect(dataset.summary).toMatchObject({ basePeak: { id: 0 }, basePeakCount: 2 });
       expect(dataset.peaks.map((peak) => peak.relativeIntensity)).toEqual(
@@ -75,7 +126,7 @@ describe("spectrum imports", () => {
   it.each([Number.MAX_VALUE, Number.MIN_VALUE])(
     "uses overflow-safe normalization (%s)",
     async (intensity) => {
-      parseTxt.mockResolvedValue({ peaks: [{ mz: 43, intensity, signal_to_noise: 0 }] });
+      mockParsedPeaks([{ mz: 43, intensity, signal_to_noise: 0 }]);
       const dataset = await readSpectrumFile(new File([""], "extreme.asc"));
       expect(dataset.peaks[0].relativeIntensity).toBe(100);
     },
@@ -92,6 +143,84 @@ describe("spectrum imports", () => {
   it("rejects empty spectra", async () => {
     parseTxt.mockResolvedValue({ peaks: [] });
     await expect(readSpectrumFile(new File([""], "empty.asc"))).rejects.toThrow("no peaks");
+    expect(openSpectrumDatabase).not.toHaveBeenCalled();
+  });
+
+  it("queries the first RT slice without losing the full database count", async () => {
+    mockParsedPeaks([
+      { mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
+      { mz: 57, intensity: 200, signal_to_noise: null, retention_time: 2.5 },
+    ]);
+    const queryPeaks = vi
+      .fn()
+      .mockResolvedValue([
+        { id: 0, mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
+      ]);
+    vi.mocked(openSpectrumDatabase).mockResolvedValue({
+      metadata: {
+        filename: "gc.csv",
+        type: "Hyphenated",
+        peakCount: 2,
+        minimumMz: 43,
+        maximumMz: 57,
+        minimumIntensity: 100,
+        maximumIntensity: 200,
+        minimumRetentionTime: 2.4,
+        maximumRetentionTime: 2.5,
+      },
+      queryPeaks,
+      dispose: vi.fn(),
+    });
+    const dataset = await readSpectrumFile(new File([""], "gc.csv"));
+    expect(queryPeaks).toHaveBeenCalledWith([2.4, 2.4]);
+    expect(dataset.retentionTimeRange).toEqual([2.4, 2.4]);
+    expect(dataset.peaks).toHaveLength(1);
+    expect(dataset.metadata.peakCount).toBe(2);
+    expect(dataset.metadata).toBe(dataset.source.metadata);
+    expect(openSpectrumDatabase).toHaveBeenCalledWith(expect.any(Array), dataset.metadata);
+  });
+
+  it("surfaces database errors and disposes a failed initial query", async () => {
+    mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null }]);
+    vi.mocked(openSpectrumDatabase).mockRejectedValueOnce(new Error("Database unavailable"));
+    await expect(readSpectrumFile(new File([""], "db.asc"))).rejects.toThrow(
+      "Database unavailable",
+    );
+    const dispose = vi.fn();
+    vi.mocked(openSpectrumDatabase).mockResolvedValueOnce({
+      metadata: {
+        filename: "db.asc",
+        type: "Direct",
+        peakCount: 1,
+        minimumMz: 43,
+        maximumMz: 43,
+        minimumIntensity: 100,
+        maximumIntensity: 100,
+        minimumRetentionTime: null,
+        maximumRetentionTime: null,
+      },
+      queryPeaks: async () => {
+        throw new Error("Query failed");
+      },
+      dispose,
+    });
+    await expect(readSpectrumFile(new File([""], "db.asc"))).rejects.toThrow("Query failed");
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rejects missing file metadata instead of inferring a replacement in JavaScript", async () => {
+    parseTxt.mockResolvedValue({ peaks: [{ mz: 43, intensity: 100, signal_to_noise: null }] });
+    await expect(readSpectrumFile(new File([""], "missing.asc"))).rejects.toThrow(
+      "did not return file metadata",
+    );
+    expect(openSpectrumDatabase).not.toHaveBeenCalled();
+  });
+
+  it("starts at RT zero for Hyphenated metadata", async () => {
+    mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null, retention_time: 0 }]);
+    const dataset = await readSpectrumFile(new File([""], "zero.csv"));
+    expect(dataset.metadata.type).toBe("Hyphenated");
+    expect(dataset.retentionTimeRange).toEqual([0, 0]);
   });
 
   it("preserves parser and worker error diagnostics", async () => {

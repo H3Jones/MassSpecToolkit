@@ -23,6 +23,7 @@ fn reads_da_asc_export_ignore_third_column() {
             mz_column: 0,
             intensity_column: 1,
             signal_to_noise_column: None,
+            retention_time_column: None,
         }
     );
 
@@ -65,6 +66,7 @@ fn reads_da_peak_list_csv() {
             mz_column: 0,
             intensity_column: 1,
             signal_to_noise_column: None,
+            retention_time_column: None,
         }
     );
 

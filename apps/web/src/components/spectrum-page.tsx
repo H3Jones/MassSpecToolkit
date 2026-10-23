@@ -1,7 +1,13 @@
-import { createElement, useCallback, useState } from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { FileUp, Waves } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { spectrumReaders, type MeasuredPeak, type SpectrumDataset } from "@/lib/spectrum";
+import {
+  prepareSpectrumView,
+  spectrumReaders,
+  type MeasuredPeak,
+  type SpectrumDataset,
+  type SpectrumView,
+} from "@/lib/spectrum";
 import type { SpectrumImportState } from "@/lib/spectrum-import";
 import type { SpectrumIntensityMode } from "ms-toolkit/charts";
 import type { MsMassSpectrum } from "ms-toolkit/mass-spectrum";
@@ -22,11 +28,57 @@ const columns: MsTableColumn<MeasuredPeak>[] = [
     header: "Signal-to-noise",
     cell: ({ getValue }) => (getValue() == null ? "Not available" : String(getValue())),
   },
+  {
+    accessorKey: "retention_time",
+    header: "RT (input units)",
+    cell: ({ getValue }) => (getValue() == null ? "Not available" : String(getValue())),
+  },
 ];
 
 function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark: boolean }) {
+  const { metadata } = dataset;
   const [renderError, setRenderError] = useState("");
   const [intensityMode, setIntensityMode] = useState<SpectrumIntensityMode>("relative");
+  const [view, setView] = useState<SpectrumView>(dataset);
+  const [minimumRt, setMinimumRt] = useState(String(dataset.retentionTimeRange?.[0] ?? ""));
+  const [maximumRt, setMaximumRt] = useState(String(dataset.retentionTimeRange?.[1] ?? ""));
+  const [appliedRange, setAppliedRange] = useState(dataset.retentionTimeRange);
+  const [querying, setQuerying] = useState(false);
+  const [queryError, setQueryError] = useState("");
+  const queryRun = useRef(0);
+  useEffect(
+    () => () => {
+      ++queryRun.current;
+    },
+    [],
+  );
+  async function queryRetentionTime() {
+    const current = ++queryRun.current;
+    setQuerying(true);
+    setQueryError("");
+    const startedAt = performance.now();
+    try {
+      if (!minimumRt.trim() || !maximumRt.trim()) {
+        throw new RangeError("Enter both RT bounds.");
+      }
+      const range = [Number(minimumRt), Number(maximumRt)] as const;
+      const rows = await dataset.source.queryPeaks(range);
+      if (current !== queryRun.current) return;
+      setView(prepareSpectrumView(rows));
+      setAppliedRange(range);
+      setRenderError("");
+      console.debug("[ms-toolkit] Spectrum RT query complete", {
+        selectedPeakCount: rows.length,
+        durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+      });
+    } catch (error) {
+      if (current === queryRun.current) {
+        setQueryError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (current === queryRun.current) setQuerying(false);
+    }
+  }
   const onError = useCallback((event: Event) => {
     setRenderError((event as CustomEvent<Error>).detail.message);
   }, []);
@@ -35,13 +87,13 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
       if (!chartElement) return;
       chartElement.addEventListener("ms-error", onError);
       try {
-        chartElement.data = dataset.chartPeaks;
+        chartElement.data = view.chartPeaks;
       } catch (error) {
         setRenderError(error instanceof Error ? error.message : String(error));
       }
       return () => chartElement.removeEventListener("ms-error", onError);
     },
-    [dataset, onError],
+    [view.chartPeaks, onError],
   );
   const table = useCallback(
     (tableElement: MsTable<MeasuredPeak> | null) => {
@@ -49,41 +101,118 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
       tableElement.addEventListener("ms-error", onError);
       try {
         tableElement.columns = columns;
-        tableElement.data = dataset.peaks;
+        tableElement.data = view.peaks;
       } catch (error) {
         setRenderError(error instanceof Error ? error.message : String(error));
       }
       return () => tableElement.removeEventListener("ms-error", onError);
     },
-    [dataset, onError],
+    [view.peaks, onError],
   );
 
-  const { summary } = dataset;
+  const { summary } = view;
   return (
     <div className="mt-6 grid min-w-0 gap-6">
       <Card className="min-w-0 shadow-none">
         <CardHeader>
-          <CardTitle className="break-all">{dataset.filename}</CardTitle>
-          <p className="text-sm text-muted-foreground">Loaded spectrum · {dataset.format}</p>
+          <CardTitle className="break-all">{metadata.filename}</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Loaded spectrum · {dataset.format} ·{" "}
+            {metadata.type === "Direct" ? "Direct infusion" : "Hyphenated"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {metadata.peakCount.toLocaleString()} measurements in the in-memory DuckDB database.
+            Refreshing clears this dataset.
+          </p>
         </CardHeader>
         <CardContent>
+          {metadata.type === "Hyphenated" && (
+            <form
+              className="mb-6 space-y-3 text-sm"
+              aria-label="Retention time filter"
+              aria-busy={querying}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void queryRetentionTime();
+              }}
+            >
+              <p id="rt-description" className="text-muted-foreground">
+                RT range in file: {metadata.minimumRetentionTime} - {metadata.maximumRetentionTime}{" "}
+                (original input units). Initially showing the first RT slice. Bounds are inclusive;
+                equal bounds select one RT value. Peaks are shown individually, not summed into a
+                combined spectrum. A wide range may require substantial memory.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="grid gap-1">
+                  Minimum RT
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={minimumRt}
+                    onChange={(event) => setMinimumRt(event.target.value)}
+                    aria-describedby="rt-description"
+                    className="rounded-md border bg-background p-2"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  Maximum RT
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={maximumRt}
+                    onChange={(event) => setMaximumRt(event.target.value)}
+                    aria-describedby="rt-description"
+                    className="rounded-md border bg-background p-2"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={querying}
+                  className="rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50"
+                >
+                  {querying ? "Querying..." : "Apply RT range"}
+                </button>
+              </div>
+              <p role="status" aria-live="polite">
+                {querying
+                  ? "Querying DuckDB. The previous view remains visible."
+                  : `Showing ${view.peaks.length.toLocaleString()} measurements.`}
+              </p>
+              {appliedRange && (
+                <p className="text-muted-foreground">
+                  Displayed RT: {appliedRange[0]} - {appliedRange[1]} (original input units).
+                </p>
+              )}
+              {queryError && (
+                <p role="alert" className="text-destructive">
+                  Could not query the RT range: {queryError} The previous view is unchanged.
+                </p>
+              )}
+            </form>
+          )}
           <dl className="grid gap-5 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Peaks</dt>
-              <dd className="mt-1 font-mono">{dataset.peaks.length.toLocaleString()}</dd>
+              <dd className="mt-1 font-mono">{view.peaks.length.toLocaleString()}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">m/z range</dt>
               <dd className="mt-1 break-all font-mono">
-                {summary.minimumMz} - {summary.maximumMz}
+                {summary ? `${summary.minimumMz} - ${summary.maximumMz}` : "No peaks"}
               </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Base peak (original intensity)</dt>
               <dd className="mt-1 break-all font-mono">
-                {summary.basePeak.mz} m/z · {summary.basePeak.intensity}
+                {summary
+                  ? `${summary.basePeak.mz} m/z · ${summary.basePeak.intensity}`
+                  : "No peaks"}
               </dd>
-              {summary.basePeakCount > 1 && (
+              {summary && summary.basePeakCount > 1 && (
                 <p className="mt-1 text-muted-foreground">
                   {summary.basePeakCount} peaks share the maximum; showing the first in file order.
                 </p>
@@ -120,7 +249,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           </fieldset>
           <p id="intensity-description" className="text-sm text-muted-foreground">
             {intensityMode === "relative"
-              ? "Intensities are relative to the dataset's base peak (100%)."
+              ? "Intensities are relative to the selected spectrum's base peak (100%)."
               : "Intensities use the original values and units from the imported file, without normalization."}
           </p>
           <p className="text-sm text-muted-foreground">
@@ -134,7 +263,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           {createElement("ms-mass-spectrum", {
             ref: spectrum,
             className: "spectrum-chart",
-            "chart-title": dataset.filename,
+            "chart-title": metadata.filename,
             "intensity-mode": intensityMode,
             labels: "false",
             color: dark ? "#7da7ff" : "#2563eb",
@@ -146,7 +275,8 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           <CardTitle>Peak list</CardTitle>
           <p className="text-sm text-muted-foreground">
             Original file order. Use column headings to sort; sorting does not change the chart.
-            Relative intensities use the entire spectrum, not just the visible rows.
+            Relative intensities use all peaks in the selected RT interval (or the entire spectrum
+            without RT), not just the visible rows.
           </p>
         </CardHeader>
         <CardContent className="min-w-0">
@@ -154,7 +284,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
             ref: table,
             className: "spectrum-table",
             "page-size": "10",
-            "aria-label": `Peaks from ${dataset.filename}`,
+            "aria-label": `Peaks from ${metadata.filename}`,
           })}
         </CardContent>
       </Card>
@@ -219,17 +349,19 @@ export default function SpectrumPage({
               </p>
             ))}
             <p>
-              Blank lines and # comments are ignored. m/z must be positive; intensity and S/N must
-              be nonnegative. All mapped values must be finite.
+              Blank lines and # comments are ignored. m/z must be positive; intensity, S/N, and RT
+              must be nonnegative. All mapped values must be finite.
             </p>
           </div>
           <p id="spectrum-memory" className="text-xs text-muted-foreground">
-            The dataset stays loaded while you navigate the app. Refreshing or closing the page
-            clears it.
+            Measurements are held in a local, in-memory DuckDB database while you navigate the app.
+            Refreshing or closing the page clears it; nothing is saved to disk yet.
           </p>
           <p id="spectrum-performance" className="text-xs text-muted-foreground">
-            No fixed file-size limit is enforced. Large spectra may take time and memory to plot;
-            selecting another file supersedes the result but does not stop work already running.
+            No fixed file-size limit is enforced. Parsing still reads the whole file, and large
+            imports may require substantial memory. GC/LC imports initially display the first RT
+            slice. Selecting another file supersedes the result but does not stop parsing already
+            running.
           </p>
           <p
             role="status"
@@ -242,7 +374,7 @@ export default function SpectrumPage({
                 case "importing":
                   return `Importing ${state.filename}...${state.dataset ? " The previous spectrum remains below." : ""}`;
                 case "loaded":
-                  return `Loaded ${state.dataset.filename}.`;
+                  return `Loaded ${state.dataset.metadata.filename}.`;
                 case "empty":
                   return "Choose a text peak list to begin.";
                 default:

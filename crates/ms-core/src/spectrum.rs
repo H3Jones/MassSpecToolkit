@@ -33,6 +33,7 @@ pub struct Peak {
     mz: f64,
     intensity: f64,
     signal_to_noise: Option<f64>,
+    retention_time: Option<f64>,
 }
 
 impl Peak {
@@ -58,7 +59,21 @@ impl Peak {
             mz,
             intensity,
             signal_to_noise,
+            retention_time: None,
         })
+    }
+
+    /// Attaches a finite, nonnegative retention time in the original input units.
+    pub fn with_retention_time(mut self, retention_time: f64) -> Result<Self, SpectrumError> {
+        if !retention_time.is_finite() || retention_time < 0.0 {
+            return Err(SpectrumError::InvalidRetentionTime);
+        }
+        self.retention_time = Some(retention_time);
+        Ok(self)
+    }
+
+    pub fn retention_time(&self) -> Option<f64> {
+        self.retention_time
     }
 
     pub fn mz(&self) -> f64 {
@@ -76,6 +91,26 @@ impl Peak {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpectrumType {
+    Direct,
+    Hyphenated,
+}
+
+/// Full-file bounds in original measurement units, independent of any filtered view.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpectrumMetadata {
+    pub filename: String,
+    pub spectrum_type: SpectrumType,
+    pub peak_count: usize,
+    pub minimum_mz: f64,
+    pub maximum_mz: f64,
+    pub minimum_intensity: f64,
+    pub maximum_intensity: f64,
+    pub minimum_retention_time: Option<f64>,
+    pub maximum_retention_time: Option<f64>,
+}
+
 /// An unannotated centroid spectrum, which may be empty.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MassSpectrum {
@@ -90,6 +125,42 @@ impl MassSpectrum {
 
     pub fn peaks(&self) -> &[Peak] {
         &self.peaks
+    }
+
+    /// Empty spectra have no bounds. Any measured RT, including zero, is hyphenated data.
+    pub fn metadata(&self, filename: impl Into<String>) -> Option<SpectrumMetadata> {
+        let first = self.peaks.first()?;
+        let mut metadata = SpectrumMetadata {
+            filename: filename.into(),
+            spectrum_type: SpectrumType::Direct,
+            peak_count: self.peaks.len(),
+            minimum_mz: first.mz(),
+            maximum_mz: first.mz(),
+            minimum_intensity: first.intensity(),
+            maximum_intensity: first.intensity(),
+            minimum_retention_time: None,
+            maximum_retention_time: None,
+        };
+        for peak in &self.peaks {
+            metadata.minimum_mz = metadata.minimum_mz.min(peak.mz());
+            metadata.maximum_mz = metadata.maximum_mz.max(peak.mz());
+            metadata.minimum_intensity = metadata.minimum_intensity.min(peak.intensity());
+            metadata.maximum_intensity = metadata.maximum_intensity.max(peak.intensity());
+            if let Some(rt) = peak.retention_time() {
+                metadata.spectrum_type = SpectrumType::Hyphenated;
+                metadata.minimum_retention_time = Some(
+                    metadata
+                        .minimum_retention_time
+                        .map_or(rt, |min| min.min(rt)),
+                );
+                metadata.maximum_retention_time = Some(
+                    metadata
+                        .maximum_retention_time
+                        .map_or(rt, |max| max.max(rt)),
+                );
+            }
+        }
+        Some(metadata)
     }
 }
 
@@ -147,6 +218,7 @@ pub enum SpectrumError {
     InvalidMz,
     InvalidIntensity,
     InvalidSignalToNoise,
+    InvalidRetentionTime,
     AssignmentMzMismatch { index: usize },
 }
 
@@ -156,6 +228,9 @@ impl std::fmt::Display for SpectrumError {
             Self::InvalidMz => write!(f, "peak m/z must be finite and greater than zero"),
             Self::InvalidIntensity => write!(f, "peak intensity must be finite and nonnegative"),
             Self::InvalidSignalToNoise => write!(f, "peak S/N must be finite and nonnegative"),
+            Self::InvalidRetentionTime => {
+                write!(f, "peak retention time must be finite and nonnegative")
+            }
             Self::AssignmentMzMismatch { index } => write!(
                 f,
                 "assignment at index {index} has an observed m/z different from the peak m/z"
@@ -195,6 +270,66 @@ mod tests {
         assert_eq!(unknown_noise.signal_to_noise(), None);
         assert_eq!(zero_noise.signal_to_noise(), Some(0.0));
         assert_ne!(unknown_noise, zero_noise);
+    }
+
+    #[test]
+    fn metadata_describes_the_full_direct_spectrum() {
+        let spectrum = MassSpectrum::new(vec![
+            Peak::new(57.0, 250.0, None).unwrap(),
+            Peak::new(43.0, 1000.0, None).unwrap(),
+            Peak::new(57.0, 0.0, None).unwrap(),
+        ]);
+        assert_eq!(
+            spectrum.metadata("direct.asc"),
+            Some(SpectrumMetadata {
+                filename: "direct.asc".into(),
+                spectrum_type: SpectrumType::Direct,
+                peak_count: 3,
+                minimum_mz: 43.0,
+                maximum_mz: 57.0,
+                minimum_intensity: 0.0,
+                maximum_intensity: 1000.0,
+                minimum_retention_time: None,
+                maximum_retention_time: None,
+            })
+        );
+        assert_eq!(MassSpectrum::new(vec![]).metadata("empty.asc"), None);
+    }
+
+    #[test]
+    fn metadata_classifies_zero_and_single_retention_times_as_hyphenated() {
+        let peak = Peak::new(43.0, 100.0, None).unwrap();
+        let spectrum = MassSpectrum::new(vec![peak.with_retention_time(0.0).unwrap()]);
+        let metadata = spectrum.metadata("zero.csv").unwrap();
+        assert_eq!(metadata.spectrum_type, SpectrumType::Hyphenated);
+        assert_eq!(metadata.minimum_retention_time, Some(0.0));
+        assert_eq!(metadata.maximum_retention_time, Some(0.0));
+
+        let spectrum = MassSpectrum::new(vec![
+            peak,
+            peak.with_retention_time(2.5).unwrap(),
+            peak.with_retention_time(2.4).unwrap(),
+        ]);
+        let metadata = spectrum.metadata("gc.csv").unwrap();
+        assert_eq!(metadata.peak_count, 3);
+        assert_eq!(metadata.minimum_retention_time, Some(2.4));
+        assert_eq!(metadata.maximum_retention_time, Some(2.5));
+    }
+
+    #[test]
+    fn validates_optional_retention_time() {
+        let peak = Peak::new(43.0, 100.0, None).unwrap();
+        assert_eq!(peak.retention_time(), None);
+        assert_eq!(
+            peak.with_retention_time(0.0).unwrap().retention_time(),
+            Some(0.0)
+        );
+        for value in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                peak.with_retention_time(value),
+                Err(SpectrumError::InvalidRetentionTime)
+            );
+        }
     }
 
     #[test]

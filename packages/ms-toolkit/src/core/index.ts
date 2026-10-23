@@ -14,6 +14,8 @@ export type {
   PeakAssignmentMatchResult,
   PeakAssignmentResult,
   SpectrumPeakResult,
+  SpectrumMetadata,
+  SpectrumType,
   TxtDelimiter,
   TxtFormat,
 } from "./types.ts";

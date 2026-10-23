@@ -35,7 +35,13 @@ export function createSpectrumImportStore(
       publish({ status: "importing", filename: file.name, dataset: state.dataset });
       try {
         const dataset = await importer(file);
-        if (run === current) publish({ status: "loaded", dataset });
+        if (run === current) {
+          const previous = state.dataset;
+          publish({ status: "loaded", dataset });
+          if (previous && previous !== dataset) previous.source.dispose();
+        } else {
+          dataset.source.dispose();
+        }
       } catch (error) {
         if (run === current) {
           publish({

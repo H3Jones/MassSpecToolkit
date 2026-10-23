@@ -88,6 +88,14 @@ export class MsMassSpectrum extends HTMLElement {
   #selection: SpectrumPeakSelection = { indices: [], visibleCount: 0 };
   #intensityMode: SpectrumIntensityMode = "relative";
   #chartTitle = "";
+  #pendingRender?: {
+    startedAt: number;
+    phase: "initial" | "update" | "viewport";
+    peakCount: number;
+    visiblePeakCount: number;
+    renderedPeakCount: number;
+    preparationMs?: number;
+  };
   #selectionFrame?: number;
 
   get data(): readonly SpectrumPeak[] {
@@ -170,6 +178,7 @@ export class MsMassSpectrum extends HTMLElement {
       const intensityMode = getSpectrumIntensityMode(
         this.getAttribute("intensity-mode") ?? undefined,
       );
+      const preparationStartedAt = performance.now();
       const prepared = createPreparedMassSpectrumChart(this.#data, {
         color: this.getAttribute("color") ?? getComputedStyle(this).color,
         textColor: getComputedStyle(this).color,
@@ -179,10 +188,12 @@ export class MsMassSpectrum extends HTMLElement {
         zoomDomain: this.#zoomDomain,
         xLabel: this.getAttribute("x-label") ?? undefined,
       });
+      const preparationMs = Math.round((performance.now() - preparationStartedAt) * 100) / 100;
       const definition = prepared.option;
       this.#selection = prepared.selection;
       this.#intensityMode = intensityMode;
       if (this.#data.length === 0) {
+        this.#updatePresentation();
         this.#dispose();
         this.#defaultMzDomain = undefined;
         this.#status.className = "status";
@@ -193,12 +204,15 @@ export class MsMassSpectrum extends HTMLElement {
       this.#defaultMzDomain = prepared.mzDomain;
       this.#container.style.height = `${height}px`;
       definition.aria = this.#updatePresentation();
+      const initialRender = !this.#host;
+      const renderStartedAt = performance.now();
       if (!this.#host) {
         this.#host = init(this.#container, undefined, {
           renderer: "svg",
           width: this.#container.clientWidth || 640,
           height,
         });
+        this.#host.on("finished", () => this.#logRenderCompletion());
         this.#host.on("datazoom", () => this.#syncZoom());
         this.#host.on("restore", () => this.#syncZoom());
         this.#resizeObserver = new ResizeObserver(() => {
@@ -209,12 +223,31 @@ export class MsMassSpectrum extends HTMLElement {
         });
         this.#resizeObserver.observe(this.#container);
       }
+      this.#pendingRender = {
+        startedAt: renderStartedAt,
+        phase: initialRender ? "initial" : "update",
+        peakCount: this.#data.length,
+        visiblePeakCount: prepared.selection.visibleCount,
+        renderedPeakCount: prepared.selection.indices.length,
+        preparationMs,
+      };
       this.#host.setOption(definition, { notMerge: true });
       this.#host.resize({ width: this.#container.clientWidth || 640, height });
       this.#syncZoom();
     } catch (error) {
       this.#showError(error);
     }
+  }
+
+  #logRenderCompletion(): void {
+    const pendingRender = this.#pendingRender;
+    if (!pendingRender) return;
+    this.#pendingRender = undefined;
+    const { startedAt, ...details } = pendingRender;
+    console.debug("[ms-toolkit] Spectrum chart render complete", {
+      ...details,
+      renderMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    });
   }
 
   #updatePresentation() {
@@ -253,6 +286,7 @@ export class MsMassSpectrum extends HTMLElement {
   #dispose(): void {
     if (this.#selectionFrame !== undefined) cancelAnimationFrame(this.#selectionFrame);
     this.#selectionFrame = undefined;
+    this.#pendingRender = undefined;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = undefined;
     this.#host?.dispose();
@@ -308,6 +342,14 @@ export class MsMassSpectrum extends HTMLElement {
     this.#activePeak = -1;
     this.#announcement.textContent = "";
     this.#host.dispatchAction({ type: "hideTip" });
+    const renderStartedAt = performance.now();
+    this.#pendingRender = {
+      startedAt: renderStartedAt,
+      phase: "viewport",
+      peakCount: this.#data.length,
+      visiblePeakCount: selection.visibleCount,
+      renderedPeakCount: selection.indices.length,
+    };
     this.#host.setOption(
       {
         ...createSpectrumViewportUpdate(

@@ -42,10 +42,10 @@ export const api = {
     }
   },
 
-  async parseTxt(input: string, spec?: TxtFormat): Promise<MassSpectrumResult> {
+  async parseTxt(input: string, spec?: TxtFormat, filename?: string): Promise<MassSpectrumResult> {
     await ensureInit();
     try {
-      return parse_txt(input, spec);
+      return parse_txt(input, spec, filename);
     } catch (error) {
       throw toError(error);
     }

@@ -6,6 +6,9 @@ use ms_core::isotopes::{
     fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
 };
 use ms_core::parser::parse_element_ranges as parse_ranges;
+use ms_core::spectrum::{
+    SpectrumMetadata as CoreSpectrumMetadata, SpectrumType as CoreSpectrumType,
+};
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use ms_readers::readers::txt::{
     self, TxtDelimiter as ReaderTxtDelimiter, TxtFormat as ReaderTxtFormat,
@@ -107,12 +110,59 @@ pub struct SpectrumPeakResult {
     mz: f64,
     intensity: f64,
     signal_to_noise: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    retention_time: Option<f64>,
 }
 
 #[derive(Serialize, Tsify)]
 #[tsify(missing_as_null)]
 pub struct MassSpectrumResult {
     peaks: Vec<SpectrumPeakResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    metadata: Option<SpectrumMetadata>,
+}
+
+#[derive(Serialize, Tsify)]
+pub enum SpectrumType {
+    Direct,
+    Hyphenated,
+}
+
+#[derive(Serialize, Tsify)]
+#[serde(rename_all = "camelCase")]
+#[tsify(missing_as_null)]
+pub struct SpectrumMetadata {
+    filename: String,
+    #[serde(rename = "type")]
+    spectrum_type: SpectrumType,
+    peak_count: usize,
+    minimum_mz: f64,
+    maximum_mz: f64,
+    minimum_intensity: f64,
+    maximum_intensity: f64,
+    minimum_retention_time: Option<f64>,
+    maximum_retention_time: Option<f64>,
+}
+
+impl From<CoreSpectrumMetadata> for SpectrumMetadata {
+    fn from(metadata: CoreSpectrumMetadata) -> Self {
+        Self {
+            filename: metadata.filename,
+            spectrum_type: match metadata.spectrum_type {
+                CoreSpectrumType::Direct => SpectrumType::Direct,
+                CoreSpectrumType::Hyphenated => SpectrumType::Hyphenated,
+            },
+            peak_count: metadata.peak_count,
+            minimum_mz: metadata.minimum_mz,
+            maximum_mz: metadata.maximum_mz,
+            minimum_intensity: metadata.minimum_intensity,
+            maximum_intensity: metadata.maximum_intensity,
+            minimum_retention_time: metadata.minimum_retention_time,
+            maximum_retention_time: metadata.maximum_retention_time,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Tsify)]
@@ -132,6 +182,9 @@ pub struct TxtFormat {
     mz_column: usize,
     intensity_column: usize,
     signal_to_noise_column: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    retention_time_column: Option<usize>,
 }
 
 impl From<ReaderTxtFormat> for TxtFormat {
@@ -146,6 +199,7 @@ impl From<ReaderTxtFormat> for TxtFormat {
             mz_column: spec.mz_column,
             intensity_column: spec.intensity_column,
             signal_to_noise_column: spec.signal_to_noise_column,
+            retention_time_column: spec.retention_time_column,
         }
     }
 }
@@ -162,6 +216,7 @@ impl From<TxtFormat> for ReaderTxtFormat {
             mz_column: spec.mz_column,
             intensity_column: spec.intensity_column,
             signal_to_noise_column: spec.signal_to_noise_column,
+            retention_time_column: spec.retention_time_column,
         }
     }
 }
@@ -196,10 +251,12 @@ pub fn guess_txt_format(input: &str) -> Result<Ts<TxtFormat>, JsError> {
 
 /// Reads text peaks with an explicit layout, or guesses one if omitted.
 /// Peak order, duplicate m/z values, and original intensities are preserved.
+/// A filename requests full-file metadata for nonempty spectra; string-only calls are unchanged.
 #[wasm_bindgen]
 pub fn parse_txt(
     input: &str,
     spec: Option<Ts<TxtFormat>>,
+    filename: Option<String>,
 ) -> Result<Ts<MassSpectrumResult>, JsError> {
     let spec = if let Some(spec) = spec {
         spec.to_rust()?.into()
@@ -209,6 +266,9 @@ pub fn parse_txt(
     let spectrum =
         txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))?;
     let result = MassSpectrumResult {
+        metadata: filename
+            .and_then(|name| spectrum.metadata(name))
+            .map(Into::into),
         peaks: spectrum
             .peaks()
             .iter()
@@ -216,6 +276,7 @@ pub fn parse_txt(
                 mz: peak.mz(),
                 intensity: peak.intensity(),
                 signal_to_noise: peak.signal_to_noise(),
+                retention_time: peak.retention_time(),
             })
             .collect(),
     };

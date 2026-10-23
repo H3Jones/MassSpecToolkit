@@ -2,12 +2,29 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createSpectrumImportStore } from "./spectrum-import";
 import type { SpectrumDataset } from "./spectrum";
 
+const source = {
+  queryPeaks: async () => [],
+  dispose: () => {},
+};
+
 function dataset(id: string): SpectrumDataset {
   const peak = { id: 0, mz: 43, intensity: 1, signal_to_noise: 0, relativeIntensity: 100 };
+  const metadata: SpectrumDataset["metadata"] = {
+    filename: `${id}.asc`,
+    type: "Direct",
+    peakCount: 1,
+    minimumMz: 43,
+    maximumMz: 43,
+    minimumIntensity: 1,
+    maximumIntensity: 1,
+    minimumRetentionTime: null,
+    maximumRetentionTime: null,
+  };
   return {
     id,
-    filename: `${id}.asc`,
+    metadata,
     format: "Text",
+    source: { ...source, metadata },
     peaks: [peak],
     chartPeaks: [{ mz: 43, int: 1 }],
     summary: { minimumMz: 43, maximumMz: 43, basePeak: peak, basePeakCount: 1 },
@@ -126,5 +143,34 @@ describe("app-lifetime spectrum state", () => {
     latest.resolve(dataset("latest"));
     await pendingLatest;
     expect(store.getSnapshot()).toEqual({ status: "loaded", dataset: dataset("latest") });
+  });
+
+  it("releases replaced and obsolete databases, but retains the database on failure", async () => {
+    const disposeFirst = vi.fn();
+    const disposeObsolete = vi.fn();
+    const firstDataset = dataset("first");
+    const obsoleteDataset = dataset("obsolete");
+    const first = { ...firstDataset, source: { ...firstDataset.source, dispose: disposeFirst } };
+    const obsolete = {
+      ...obsoleteDataset,
+      source: { ...obsoleteDataset.source, dispose: disposeObsolete },
+    };
+    const old = deferred<SpectrumDataset>();
+    const importer = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockRejectedValueOnce(new Error("Bad file"))
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce(dataset("latest"));
+    const store = createSpectrumImportStore(importer);
+    await store.importFile(new File([""], "first.asc"));
+    await store.importFile(new File([""], "bad.asc"));
+    expect(disposeFirst).not.toHaveBeenCalled();
+    const pending = store.importFile(new File([""], "obsolete.asc"));
+    await store.importFile(new File([""], "latest.asc"));
+    expect(disposeFirst).toHaveBeenCalledOnce();
+    old.resolve(obsolete);
+    await pending;
+    expect(disposeObsolete).toHaveBeenCalledOnce();
   });
 });
