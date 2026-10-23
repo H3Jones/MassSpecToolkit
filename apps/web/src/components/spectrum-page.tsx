@@ -3,6 +3,7 @@ import { FileUp, Waves } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { spectrumReaders, type MeasuredPeak, type SpectrumDataset } from "@/lib/spectrum";
 import type { SpectrumImportState } from "@/lib/spectrum-import";
+import type { SpectrumIntensityMode } from "ms-toolkit/charts";
 import type { MsMassSpectrum } from "ms-toolkit/mass-spectrum";
 import type { MsTable, MsTableColumn } from "ms-toolkit/table";
 import "ms-toolkit/mass-spectrum";
@@ -25,6 +26,7 @@ const columns: MsTableColumn<MeasuredPeak>[] = [
 
 function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark: boolean }) {
   const [renderError, setRenderError] = useState("");
+  const [intensityMode, setIntensityMode] = useState<SpectrumIntensityMode>("relative");
   const onError = useCallback((event: Event) => {
     setRenderError((event as CustomEvent<Error>).detail.message);
   }, []);
@@ -98,10 +100,32 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
       <Card className="min-w-0 shadow-none">
         <CardHeader>
           <CardTitle>Mass spectrum</CardTitle>
+          <fieldset aria-describedby="intensity-description" className="mt-2 text-sm">
+            <legend className="mb-2 font-medium">Intensity scale</legend>
+            <div className="flex flex-wrap gap-4">
+              {(["relative", "absolute"] as const).map((mode) => (
+                <label key={mode} className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="spectrum-intensity"
+                    value={mode}
+                    checked={intensityMode === mode}
+                    onChange={() => setIntensityMode(mode)}
+                    className="accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  />
+                  {mode === "relative" ? "Relative (%)" : "Absolute (original units)"}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p id="intensity-description" className="text-sm text-muted-foreground">
+            {intensityMode === "relative"
+              ? "Intensities are relative to the dataset's base peak (100%)."
+              : "Intensities use the original values and units from the imported file, without normalization."}
+          </p>
           <p className="text-sm text-muted-foreground">
-            Intensities are relative to the dataset&apos;s base peak (100%). Zoom and pan to inspect
-            the spectrum; press Home in the chart to reset, +/- to zoom, and arrow keys to inspect
-            peaks.
+            Zoom and pan to inspect the spectrum; press Home in the chart to reset, +/- to zoom, and
+            arrow keys to inspect peaks. The peak list below always shows both intensity scales.
           </p>
         </CardHeader>
         <CardContent className="min-w-0">
@@ -109,6 +133,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
             ref: spectrum,
             className: "spectrum-chart",
             "chart-title": dataset.filename,
+            "intensity-mode": intensityMode,
             labels: "false",
             color: dark ? "#7da7ff" : "#2563eb",
           })}

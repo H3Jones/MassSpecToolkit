@@ -14,7 +14,7 @@ import {
   normalizeSpectrumPeaks,
   type SpectrumPeak,
 } from "../charts/index.ts";
-import { getAutomaticMzDomain } from "../charts/mass-spectrum.ts";
+import { getAutomaticMzDomain, getSpectrumIntensityMode } from "../charts/mass-spectrum.ts";
 import { createSpectrumTooltip } from "../charts/spectrum-tooltip.ts";
 
 use([
@@ -49,7 +49,8 @@ template.innerHTML = `
 
 /**
  * `<ms-mass-spectrum chart-title="Mass spectrum" height="360">`
- * Assign centroid peaks to `data`. Intensities are normalized to a 100% base peak.
+ * Assign centroid peaks to `data`. The default intensity-mode="relative" uses a
+ * 100% base peak; intensity-mode="absolute" displays original intensity values.
  * Rendering errors dispatch `ms-error` (detail: Error).
  */
 export class MsMassSpectrum extends HTMLElement {
@@ -61,6 +62,7 @@ export class MsMassSpectrum extends HTMLElement {
     "mz-min",
     "mz-max",
     "x-label",
+    "intensity-mode",
   ];
 
   #data: readonly SpectrumPeak[] = [];
@@ -151,9 +153,13 @@ export class MsMassSpectrum extends HTMLElement {
         }
         mzDomain = [Number(minimumMz), Number(maximumMz)];
       }
+      const intensityMode = getSpectrumIntensityMode(
+        this.getAttribute("intensity-mode") ?? undefined,
+      );
       const definition = createMassSpectrumChart(this.#data, {
         color: this.getAttribute("color") ?? getComputedStyle(this).color,
         textColor: getComputedStyle(this).color,
+        intensityMode,
         labels: labelsAttribute !== "false",
         mzDomain,
         zoomDomain: this.#zoomDomain,
@@ -171,7 +177,11 @@ export class MsMassSpectrum extends HTMLElement {
       this.#defaultMzDomain = defaultMzDomain;
       this.#container.style.height = `${height}px`;
       this.#container.setAttribute("aria-label", title || "Mass spectrum");
-      const description = `${this.#data.length} peaks. Intensities normalized to the base peak at 100%. Use the mouse wheel or pinch to zoom, the area zoom tool to select an m/z section, drag or the range slider to pan, plus and minus to zoom, Home to reset, and arrow keys to inspect peaks.`;
+      const intensityDescription =
+        intensityMode === "absolute"
+          ? "Absolute intensities in the original input units."
+          : "Intensities normalized to the base peak at 100%.";
+      const description = `${this.#data.length} peaks. ${intensityDescription} Use the mouse wheel or pinch to zoom, the area zoom tool to select an m/z section, drag or the range slider to pan, plus and minus to zoom, Home to reset, and arrow keys to inspect peaks.`;
       this.#container.setAttribute("aria-description", description);
       definition.aria = {
         enabled: true,
@@ -264,6 +274,7 @@ export class MsMassSpectrum extends HTMLElement {
       this.#announcement.textContent = createSpectrumTooltip(
         peak,
         this.getAttribute("x-label") ?? "m/z",
+        getSpectrumIntensityMode(this.getAttribute("intensity-mode") ?? undefined),
       ).getAttribute("aria-label");
     } else if (event.key === "Escape") {
       this.#host.dispatchAction({ type: "hideTip" });

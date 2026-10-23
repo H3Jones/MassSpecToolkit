@@ -36,13 +36,23 @@ export interface RelativeSpectrumPeak extends SpectrumPeak {
   readonly relativeIntensity: number;
 }
 
+export type SpectrumIntensityMode = "relative" | "absolute";
+
 export interface MassSpectrumOptions {
   color?: string;
   textColor?: string;
+  intensityMode?: SpectrumIntensityMode;
   labels?: boolean;
   mzDomain?: readonly [number, number];
   zoomDomain?: readonly [number, number];
   xLabel?: string;
+}
+
+export function getSpectrumIntensityMode(mode: unknown = "relative"): SpectrumIntensityMode {
+  if (mode !== "relative" && mode !== "absolute") {
+    throw new TypeError('Spectrum intensity mode must be "relative" or "absolute".');
+  }
+  return mode;
 }
 
 /** Validates and copies peaks without changing their order or combining equal m/z values. */
@@ -130,6 +140,18 @@ export function createMassSpectrumChart(
   options: MassSpectrumOptions = {},
 ): MassSpectrumChartOption {
   const data = normalizeSpectrumPeaks(peaks);
+  const intensityMode = getSpectrumIntensityMode(options.intensityMode);
+  const relative = intensityMode === "relative";
+  let maximumIntensity = 0;
+  for (const peak of data) maximumIntensity = Math.max(maximumIntensity, peak.int);
+  const absoluteSplitNumber = 5;
+  // ECharts rounds ticks to 20 decimal places. Pin bounds outside its safe rounding range.
+  const fixedAbsoluteMaximum =
+    maximumIntensity === 0
+      ? 1
+      : maximumIntensity / absoluteSplitNumber < 1e-20 || !Number.isFinite(maximumIntensity * 2)
+        ? Math.min(Number.MAX_VALUE, maximumIntensity * 1.1)
+        : undefined;
   const color = options.color ?? "currentColor";
   const textColor = options.textColor;
   const xLabel = options.xLabel ?? "m/z";
@@ -177,15 +199,17 @@ export function createMassSpectrumChart(
     yAxis: {
       type: "value",
       min: 0,
-      max: 110,
-      interval: 20,
-      name: "Relative intensity (%)",
+      max: relative ? 110 : fixedAbsoluteMaximum,
+      boundaryGap: relative ? undefined : [0, "10%"],
+      splitNumber: relative ? undefined : absoluteSplitNumber,
+      interval: relative ? 20 : maximumIntensity > 0 ? fixedAbsoluteMaximum : undefined,
+      name: relative ? "Relative intensity (%)" : "Absolute intensity",
       nameLocation: "middle",
       nameGap: 45,
       nameTextStyle: { fontSize: 16, color: textColor },
       axisLabel: {
         color: textColor,
-        formatter: (value: number) => (value <= 100 ? String(value) : ""),
+        formatter: relative ? (value: number) => (value <= 100 ? String(value) : "") : undefined,
       },
       splitLine: { show: true },
     },
@@ -205,10 +229,10 @@ export function createMassSpectrumChart(
         type: "custom",
         coordinateSystem: "cartesian2d",
         clip: true,
-        dimensions: ["mz", "relativeIntensity"],
+        dimensions: ["mz", relative ? "relativeIntensity" : "int"],
         encode: { x: 0, y: 1, tooltip: [0, 1] },
         data: data.map((peak) => ({
-          value: [peak.mz, peak.relativeIntensity],
+          value: [peak.mz, relative ? peak.relativeIntensity : peak.int],
           ...peak,
           // Direct/keyboard inspection must distinguish peaks with identical m/z.
           tooltip: { trigger: "item" },
@@ -255,7 +279,7 @@ export function createMassSpectrumChart(
         const point = Array.isArray(params) ? params[0] : params;
         const peak = point && data[point.dataIndex];
         if (!peak) throw new RangeError("Spectrum tooltip peak is out of range.");
-        return createSpectrumTooltip(peak, xLabel);
+        return createSpectrumTooltip(peak, xLabel, intensityMode);
       },
     },
   };

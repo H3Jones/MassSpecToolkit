@@ -1,7 +1,11 @@
 import DOMPurify from "dompurify";
-import type { RelativeSpectrumPeak } from "./mass-spectrum.ts";
+import type { RelativeSpectrumPeak, SpectrumIntensityMode } from "./mass-spectrum.ts";
 
-export function createSpectrumTooltip(peak: RelativeSpectrumPeak, xLabel: string): HTMLElement {
+export function createSpectrumTooltip(
+  peak: RelativeSpectrumPeak,
+  xLabel: string,
+  intensityMode: SpectrumIntensityMode = "relative",
+): HTMLElement {
   const card = document.createElement("div");
   card.style.cssText = "display:grid;gap:0.3rem;font:500 0.75rem/1.3 system-ui,sans-serif";
   const assignment = document.createElement("div");
@@ -27,7 +31,9 @@ export function createSpectrumTooltip(peak: RelativeSpectrumPeak, xLabel: string
   const intensity = peak.relativeIntensity;
   for (const text of [
     `${xLabel}: ${peak.mz}`,
-    `Relative intensity: ${intensity > 0 && intensity < 0.01 ? intensity.toExponential(2) : intensity.toFixed(2)}%`,
+    intensityMode === "absolute"
+      ? `Absolute intensity: ${peak.int}`
+      : `Relative intensity: ${intensity > 0 && intensity < 0.01 ? intensity.toExponential(2) : intensity.toFixed(2)}%`,
   ]) {
     const line = document.createElement("div");
     line.textContent = text;

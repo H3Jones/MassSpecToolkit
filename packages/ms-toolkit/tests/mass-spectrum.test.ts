@@ -137,6 +137,126 @@ describe("mass spectrum chart", () => {
     expect(render(createMassSpectrumChart(peaks)).renderToSVGString()).toContain(">43</text>");
   });
 
+  it("plots absolute intensities in their original units without changing measurements", () => {
+    const input = Object.freeze([
+      Object.freeze({ mz: 57, int: 250 }),
+      Object.freeze({ mz: 43, int: 1000 }),
+      Object.freeze({ mz: 57, int: 500 }),
+    ]);
+    const option = createMassSpectrumChart(input, {
+      intensityMode: "absolute",
+      color: "#2563eb",
+    });
+    expect(option.yAxis).toMatchObject({
+      min: 0,
+      max: undefined,
+      boundaryGap: [0, "10%"],
+      name: "Absolute intensity",
+    });
+    expect(option.series).toMatchObject([
+      {
+        dimensions: ["mz", "int"],
+        data: [
+          { value: [57, 250], mz: 57, int: 250, relativeIntensity: 25 },
+          { value: [43, 1000], mz: 43, int: 1000, relativeIntensity: 100 },
+          { value: [57, 500], mz: 57, int: 500, relativeIntensity: 50 },
+        ],
+      },
+    ]);
+    const chart = render(option);
+    const svg = chart.renderToSVGString();
+    expect(svg).toContain("Absolute intensity");
+    const sticks = [
+      ...svg.matchAll(/<path d="M([\d.-]+) ([\d.-]+)L([\d.-]+) ([\d.-]+)"[^>]*stroke="#2563eb"/g),
+    ];
+    expect(sticks).toHaveLength(3);
+    for (const [index, stick] of sticks.entries()) {
+      expect(Number(stick[2])).toBeCloseTo(chart.convertToPixel({ yAxisIndex: 0 }, 0), 1);
+      expect(Number(stick[4])).toBe(
+        Number(chart.convertToPixel({ yAxisIndex: 0 }, input[index]!.int).toFixed(1)),
+      );
+    }
+    expect(input[0]).toEqual({ mz: 57, int: 250 });
+  });
+
+  it("uses ECharts nice ticks instead of a fixed padded absolute maximum", () => {
+    const chart = render(
+      createMassSpectrumChart(
+        [
+          { mz: 202.85354, int: 917_992 },
+          { mz: 204.55546, int: 1_842_229 },
+        ],
+        { intensityMode: "absolute" },
+      ),
+    );
+    expect(chart.convertFromPixel({ yAxisIndex: 0 }, 45)).toBe(2_100_000);
+    const svg = chart.renderToSVGString();
+    for (const tick of [
+      "300,000",
+      "600,000",
+      "900,000",
+      "1,200,000",
+      "1,500,000",
+      "1,800,000",
+      "2,100,000",
+    ]) {
+      expect(svg).toContain(`>${tick}</text>`);
+    }
+    expect(chart.getOption().series).toMatchObject([
+      { data: [{ value: [202.85354, 917_992] }, { value: [204.55546, 1_842_229] }] },
+    ]);
+  });
+
+  it.each([0, 1e-8, 1e-19, 1e-20, 1e-300, 2 ** -1022, Number.MIN_VALUE, 1e308, Number.MAX_VALUE])(
+    "keeps the absolute intensity axis and geometry finite for %s",
+    (intensity) => {
+      const option = createMassSpectrumChart([{ mz: 43, int: intensity }], {
+        intensityMode: "absolute",
+      });
+      expect(option.yAxis).toMatchObject({ min: 0, name: "Absolute intensity" });
+      const chart = render(option);
+      const svg = chart.renderToSVGString();
+      expect(svg).not.toMatch(/NaN|Infinity/);
+      expect(chart.convertToPixel({ yAxisIndex: 0 }, intensity)).toBeGreaterThanOrEqual(0);
+      if (intensity > 0) {
+        expect(chart.convertToPixel({ yAxisIndex: 0 }, intensity)).toBeLessThan(
+          chart.convertToPixel({ yAxisIndex: 0 }, 0),
+        );
+      }
+    },
+  );
+
+  it("handles an empty absolute spectrum with a nonzero axis range", () => {
+    const option = createMassSpectrumChart([], { intensityMode: "absolute" });
+    expect(option.yAxis).toMatchObject({ min: 0, max: 1 });
+    expect(render(option).renderToSVGString()).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("preserves an explicit m/z zoom while changing the intensity scale", () => {
+    const chart = render(createMassSpectrumChart(peaks, { zoomDomain: [50, 58] }));
+    chart.setOption(
+      createMassSpectrumChart(peaks, { intensityMode: "absolute", zoomDomain: [50, 58] }),
+      { notMerge: true },
+    );
+    expect(chart.getOption().dataZoom).toMatchObject([
+      { startValue: 50, endValue: 58 },
+      { startValue: 50, endValue: 58 },
+    ]);
+    expect(chart.getOption().series).toMatchObject([
+      { data: [{ value: [43, 1000] }, { value: [57, 250] }] },
+    ]);
+    chart.setOption(createMassSpectrumChart(peaks, { zoomDomain: [50, 58] }), { notMerge: true });
+    expect(chart.getOption().series).toMatchObject([
+      { data: [{ value: [43, 100] }, { value: [57, 25] }] },
+    ]);
+  });
+
+  it.each(["", "counts", null, 1])("rejects unsupported intensity modes: %j", (intensityMode) => {
+    expect(() => Reflect.apply(createMassSpectrumChart, null, [peaks, { intensityMode }])).toThrow(
+      'intensity mode must be "relative" or "absolute"',
+    );
+  });
+
   it("supports readable axis labels and controls on dark backgrounds", () => {
     const option = createMassSpectrumChart(peaks, { textColor: "#f1f5f9" });
     expect(option.xAxis).toMatchObject({
