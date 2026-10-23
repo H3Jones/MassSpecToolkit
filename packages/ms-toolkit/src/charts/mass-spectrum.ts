@@ -180,7 +180,7 @@ export function createMassSpectrumChart(
     aria: { enabled: true },
     grid: { left: 75, right: 25, top: 45, bottom: 90 },
     toolbox: {
-      left: 75,
+      right: 25,
       iconStyle: { borderColor: textColor },
       feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
     },

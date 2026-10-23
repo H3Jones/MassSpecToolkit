@@ -317,12 +317,13 @@ describe("mass spectrum chart", () => {
     ]);
   });
 
-  it("provides native area zoom and undo restricted to the m/z axis", () => {
+  it("places native area zoom and undo on the right, restricted to the m/z axis", () => {
     const option = createMassSpectrumChart(peaks);
     expect(option.toolbox).toMatchObject({
-      left: 75,
+      right: 25,
       feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
     });
+    expect(option.toolbox).not.toHaveProperty("left");
     const chart = render(option);
     chart.dispatchAction({
       type: "takeGlobalCursor",
