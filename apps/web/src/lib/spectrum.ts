@@ -1,17 +1,11 @@
-import {
-  callClient,
-  type MassSpectrumResult,
-  type SpectrumPeakResult,
-  type SpectrumMetadata,
-  type TxtFormat,
-} from "ms-toolkit/core";
+import type { SpectrumPeakResult, SpectrumMetadata, TxtFormat } from "ms-toolkit/core";
 import { normalizeSpectrumPeaks, type SpectrumPeak } from "ms-toolkit/charts";
-import {
-  openSpectrumDatabase,
-  type RetentionTimeRange,
-  type SpectrumDataSource,
-  type StoredSpectrumPeak,
+import type {
+  RetentionTimeRange,
+  SpectrumDataSource,
+  StoredSpectrumPeak,
 } from "./spectrum-database";
+import { openSpectrumFile } from "./spectrum-worker-client";
 
 export const spectrumReaders = [
   {
@@ -20,8 +14,6 @@ export const spectrumReaders = [
     extensions: [".txt", ".asc", ".csv", ".tsv"],
     description:
       "Unquoted text (.txt, .asc, .csv, .tsv) with whitespace, tab, comma, semicolon, or pipe separators. Headers are detected; headerless data uses the first two columns for m/z and intensity. S/N and RT (retention time) require recognized headers or explicit column mappings. RT retains the input file's units.",
-    parse: (text: string, spec?: TxtFormat, filename?: string): Promise<MassSpectrumResult> =>
-      callClient((client) => client.parseTxt(text, spec, filename)),
   },
 ] as const;
 
@@ -88,26 +80,15 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
   if (!reader) {
     throw new Error("Unsupported file format. Choose a text (.txt, .asc, .csv, .tsv) peak list.");
   }
-  const readStartedAt = performance.now();
-  const text = await file.text();
+  const source = await openSpectrumFile(file, spec);
   console.debug("[ms-toolkit] Spectrum file read", {
     bytes: file.size,
-    durationMs: Math.round((performance.now() - readStartedAt) * 100) / 100,
+    durationMs: Math.round(source.timings.readMs * 100) / 100,
   });
-  const parseStartedAt = performance.now();
-  const result = await reader.parse(text, spec, file.name);
   console.debug("[ms-toolkit] Spectrum file parsed", {
-    peakCount: result.peaks.length,
-    durationMs: Math.round((performance.now() - parseStartedAt) * 100) / 100,
+    peakCount: source.metadata.peakCount,
+    durationMs: Math.round(source.timings.parseMs * 100) / 100,
   });
-  if (result.peaks.length === 0) {
-    throw new Error("The file contains no peaks.");
-  }
-  if (!result.metadata) {
-    throw new Error("The spectrum reader did not return file metadata.");
-  }
-  const databaseStartedAt = performance.now();
-  const source = await openSpectrumDatabase(result.peaks, result.metadata);
   try {
     const metadata = source.metadata;
     let retentionTimeRange: RetentionTimeRange | undefined;
@@ -128,7 +109,7 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
     console.debug("[ms-toolkit] Spectrum import complete", {
       peakCount: metadata.peakCount,
       selectedPeakCount: view.peaks.length,
-      databaseMs: Math.round((performance.now() - databaseStartedAt) * 100) / 100,
+      databaseMs: Math.round(source.timings.databaseMs * 100) / 100,
       durationMs: Math.round((performance.now() - importStartedAt) * 100) / 100,
     });
     return dataset;

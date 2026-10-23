@@ -33,8 +33,10 @@ each calculator plus an All tools link. The landing page also links to these pag
 
 - `#/spectrum`: import a text peak list (.txt, .asc, .csv, .tsv) with automatic
   format detection into an in-memory DuckDB-Wasm database and inspect its spectrum,
-  summary, and sortable peak table. GC/LC files with an RT header start at the first
-  retention time and support inclusive RT-range queries in original input units.
+  summary, and sortable peak table. Rust supplies full-file `SpectrumMetadata`
+  (filename, measurement bounds, peak count, and `Direct`/`Hyphenated` type), also
+  stored in DuckDB's `SpectrumMetadata` table. Only Hyphenated spectra show RT
+  selectors, starting at the first RT and retaining original input units.
   One dataset stays in memory across navigation; refreshing clears it. Failed
   imports retain the previous spectrum.
 - `#/tools/ion-calculator`: formula mass, m/z, and degree of unsaturation.
@@ -71,11 +73,13 @@ from this directory with `npx shadcn@latest add <component>`.
 Calculator pages are lazy-loaded, keeping chart code off the initial landing
 page. They reuse the existing toolkit web components, including their forms,
 loading states, errors, and results; no calculations are reimplemented in React.
-The spectrum page owns its import workflow and database in React, reusing the
-toolkit's WASM reader, chart, and table. DuckDB's single-threaded worker and WASM
+The spectrum page delegates ingestion and database coordination to a data worker,
+reusing the toolkit's WASM reader, chart, and table. Files are read in the Rust
+worker, which transfers bounded columnar batches with insertion backpressure.
+DuckDB's single-threaded worker and WASM
 assets are bundled locally, without cross-origin isolation requirements or CDN
-requests. Parsing still materializes the full input; only database insertion is
-batched, and wide RT queries still materialize their results. RT queries preserve
+requests. Parsing still materializes the full input inside a worker, and wide RT
+queries still materialize their results. RT queries preserve
 individual measurements, not summed or tolerance-binned spectra. Persistence,
 streaming ingestion, and viewport SQL queries are not implemented yet.
 No imported data is sent to a server.

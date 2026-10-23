@@ -1,22 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SpectrumMetadata, SpectrumPeakResult, TxtFormat } from "ms-toolkit/core";
 import { readSpectrumFile } from "./spectrum";
-import { openSpectrumDatabase } from "./spectrum-database";
+import { openSpectrumFile } from "./spectrum-worker-client";
 
-const { parseTxt } = vi.hoisted(() => ({ parseTxt: vi.fn() }));
-vi.mock("ms-toolkit/core", () => ({
-  callClient: (request: (client: { parseTxt: typeof parseTxt }) => Promise<unknown>) =>
-    request({ parseTxt }),
-}));
-vi.mock("./spectrum-database", () => ({ openSpectrumDatabase: vi.fn() }));
+vi.mock("./spectrum-worker-client", () => ({ openSpectrumFile: vi.fn() }));
 
 function mockParsedPeaks(peaks: readonly SpectrumPeakResult[]) {
-  parseTxt.mockImplementation(async (_text, _spec, filename: string) => {
+  vi.mocked(openSpectrumFile).mockImplementation(async (file) => {
     const retentionTimes = peaks.flatMap((peak) =>
       peak.retention_time === undefined ? [] : [peak.retention_time],
     );
     const metadata: SpectrumMetadata = {
-      filename,
+      filename: file.name,
       type: retentionTimes.length ? "Hyphenated" : "Direct",
       peakCount: peaks.length,
       minimumMz: Math.min(...peaks.map((peak) => peak.mz)),
@@ -26,18 +21,17 @@ function mockParsedPeaks(peaks: readonly SpectrumPeakResult[]) {
       minimumRetentionTime: retentionTimes.length ? Math.min(...retentionTimes) : null,
       maximumRetentionTime: retentionTimes.length ? Math.max(...retentionTimes) : null,
     };
-    return { peaks, metadata };
+    return {
+      metadata,
+      timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
+      queryPeaks: async () => peaks.map((peak, id) => ({ ...peak, id })),
+      dispose: vi.fn(),
+    };
   });
 }
 
 beforeEach(() => {
-  parseTxt.mockReset();
-  vi.mocked(openSpectrumDatabase).mockReset();
-  vi.mocked(openSpectrumDatabase).mockImplementation(async (peaks, metadata) => ({
-    metadata,
-    queryPeaks: async () => peaks.map((peak, id) => ({ ...peak, id })),
-    dispose: vi.fn(),
-  }));
+  vi.mocked(openSpectrumFile).mockReset();
 });
 
 describe("spectrum imports", () => {
@@ -75,8 +69,10 @@ describe("spectrum imports", () => {
       { mz: 57, intensity: 500, signal_to_noise: null },
     ]);
     const file = new File(["57 250 0\n43 1000 10\n57 500 1"], "example.ASC");
+    const read = vi.spyOn(file, "text");
     const dataset = await readSpectrumFile(file);
-    expect(parseTxt).toHaveBeenCalledWith(await file.text(), undefined, file.name);
+    expect(openSpectrumFile).toHaveBeenCalledWith(file, undefined);
+    expect(read).not.toHaveBeenCalled();
     expect(dataset).toMatchObject({
       metadata: { filename: "example.ASC", type: "Direct" },
       format: "Text",
@@ -93,7 +89,7 @@ describe("spectrum imports", () => {
     expect(dataset.peaks).toEqual(original);
     expect((await readSpectrumFile(file)).id).not.toBe(dataset.id);
     for (const extension of ["TXT", "CSV", "TSV"]) {
-      const textFile = new File([await file.text()], `example.${extension}`);
+      const textFile = new File(["57 250"], `example.${extension}`);
       expect((await readSpectrumFile(textFile)).format).toBe("Text");
     }
     const spec: TxtFormat = {
@@ -105,7 +101,8 @@ describe("spectrum imports", () => {
       signal_to_noise_column: null,
     };
     await readSpectrumFile(file, spec);
-    expect(parseTxt).toHaveBeenLastCalledWith(await file.text(), spec, file.name);
+    expect(openSpectrumFile).toHaveBeenLastCalledWith(file, spec);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it.each([0, 1000])(
@@ -137,13 +134,12 @@ describe("spectrum imports", () => {
     const read = vi.spyOn(file, "text");
     await expect(readSpectrumFile(file)).rejects.toThrow("Unsupported file format");
     expect(read).not.toHaveBeenCalled();
-    expect(parseTxt).not.toHaveBeenCalled();
+    expect(openSpectrumFile).not.toHaveBeenCalled();
   });
 
   it("rejects empty spectra", async () => {
-    parseTxt.mockResolvedValue({ peaks: [] });
+    vi.mocked(openSpectrumFile).mockRejectedValue(new Error("The file contains no peaks."));
     await expect(readSpectrumFile(new File([""], "empty.asc"))).rejects.toThrow("no peaks");
-    expect(openSpectrumDatabase).not.toHaveBeenCalled();
   });
 
   it("queries the first RT slice without losing the full database count", async () => {
@@ -156,7 +152,8 @@ describe("spectrum imports", () => {
       .mockResolvedValue([
         { id: 0, mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
       ]);
-    vi.mocked(openSpectrumDatabase).mockResolvedValue({
+    vi.mocked(openSpectrumFile).mockResolvedValue({
+      timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
       metadata: {
         filename: "gc.csv",
         type: "Hyphenated",
@@ -171,23 +168,25 @@ describe("spectrum imports", () => {
       queryPeaks,
       dispose: vi.fn(),
     });
-    const dataset = await readSpectrumFile(new File([""], "gc.csv"));
+    const file = new File([""], "gc.csv");
+    const dataset = await readSpectrumFile(file);
     expect(queryPeaks).toHaveBeenCalledWith([2.4, 2.4]);
     expect(dataset.retentionTimeRange).toEqual([2.4, 2.4]);
     expect(dataset.peaks).toHaveLength(1);
     expect(dataset.metadata.peakCount).toBe(2);
     expect(dataset.metadata).toBe(dataset.source.metadata);
-    expect(openSpectrumDatabase).toHaveBeenCalledWith(expect.any(Array), dataset.metadata);
+    expect(openSpectrumFile).toHaveBeenCalledWith(file, undefined);
   });
 
   it("surfaces database errors and disposes a failed initial query", async () => {
     mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null }]);
-    vi.mocked(openSpectrumDatabase).mockRejectedValueOnce(new Error("Database unavailable"));
+    vi.mocked(openSpectrumFile).mockRejectedValueOnce(new Error("Database unavailable"));
     await expect(readSpectrumFile(new File([""], "db.asc"))).rejects.toThrow(
       "Database unavailable",
     );
     const dispose = vi.fn();
-    vi.mocked(openSpectrumDatabase).mockResolvedValueOnce({
+    vi.mocked(openSpectrumFile).mockResolvedValueOnce({
+      timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
       metadata: {
         filename: "db.asc",
         type: "Direct",
@@ -208,14 +207,6 @@ describe("spectrum imports", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("rejects missing file metadata instead of inferring a replacement in JavaScript", async () => {
-    parseTxt.mockResolvedValue({ peaks: [{ mz: 43, intensity: 100, signal_to_noise: null }] });
-    await expect(readSpectrumFile(new File([""], "missing.asc"))).rejects.toThrow(
-      "did not return file metadata",
-    );
-    expect(openSpectrumDatabase).not.toHaveBeenCalled();
-  });
-
   it("starts at RT zero for Hyphenated metadata", async () => {
     mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null, retention_time: 0 }]);
     const dataset = await readSpectrumFile(new File([""], "zero.csv"));
@@ -224,16 +215,17 @@ describe("spectrum imports", () => {
   });
 
   it("preserves parser and worker error diagnostics", async () => {
-    parseTxt.mockRejectedValue(new Error("line 2: expected 3 columns"));
+    vi.mocked(openSpectrumFile).mockRejectedValue(new Error("line 2: expected 3 columns"));
     await expect(readSpectrumFile(new File([""], "bad.asc"))).rejects.toThrow("line 2");
-    parseTxt.mockRejectedValue(new Error("Unable to load WebAssembly"));
+    vi.mocked(openSpectrumFile).mockRejectedValue(new Error("Unable to load WebAssembly"));
     await expect(readSpectrumFile(new File([""], "valid.asc"))).rejects.toThrow("WebAssembly");
   });
 
-  it("surfaces file-read failures without parsing", async () => {
+  it("surfaces worker-side file-read failures without reading on the UI thread", async () => {
     const file = new File([""], "unreadable.asc");
-    vi.spyOn(file, "text").mockRejectedValue(new Error("File access denied"));
+    const read = vi.spyOn(file, "text");
+    vi.mocked(openSpectrumFile).mockRejectedValue(new Error("File access denied"));
     await expect(readSpectrumFile(file)).rejects.toThrow("File access denied");
-    expect(parseTxt).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
   });
 });

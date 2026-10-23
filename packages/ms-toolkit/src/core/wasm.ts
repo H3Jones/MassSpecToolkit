@@ -1,4 +1,6 @@
+import { transfer } from "comlink";
 import init, {
+  TxtSpectrumReader,
   assign_peak,
   evaluate_ion,
   fine_isotope_distribution,
@@ -18,6 +20,8 @@ import type {
   MassToleranceUnit,
   PeakAssignmentResult,
   TxtFormat,
+  SpectrumPeakColumns,
+  SpectrumMetadata,
 } from "./types.ts";
 
 let ready: Promise<unknown> | undefined;
@@ -33,6 +37,60 @@ function toError(error: unknown): Error {
 
 /** Typed wrapper around the wasm module. Initialises it lazily on first use. */
 export const api = {
+  /** Reads and parses the File here; only bounded columnar batches leave this worker. */
+  async ingestTxt(
+    file: File,
+    spec: TxtFormat | undefined,
+    consume: (batch: SpectrumPeakColumns) => Promise<void>,
+  ): Promise<{ metadata: SpectrumMetadata; readMs: number; parseMs: number }> {
+    await ensureInit();
+    const readStartedAt = performance.now();
+    const text = await file.text();
+    const readMs = performance.now() - readStartedAt;
+    let reader: TxtSpectrumReader | undefined;
+    try {
+      const parseStartedAt = performance.now();
+      reader = new TxtSpectrumReader(text, spec, file.name);
+      const metadata = reader.metadata();
+      const parseMs = performance.now() - parseStartedAt;
+      for (let native = reader.next_batch(); native; native = reader.next_batch()) {
+        try {
+          const batch: SpectrumPeakColumns = {
+            startIndex: native.start_index,
+            mz: native.mz,
+            intensity: native.intensity,
+            signalToNoise: native.signal_to_noise,
+            signalToNoiseValidity: native.signal_to_noise_validity,
+            retentionTime: native.retention_time,
+            retentionTimeValidity: native.retention_time_validity,
+          };
+          const buffers: ArrayBuffer[] = [];
+          for (const column of [
+            batch.mz,
+            batch.intensity,
+            batch.signalToNoise,
+            batch.signalToNoiseValidity,
+            batch.retentionTime,
+            batch.retentionTimeValidity,
+          ]) {
+            if (!(column.buffer instanceof ArrayBuffer)) {
+              throw new Error("Spectrum columns must have owned, transferable buffers.");
+            }
+            buffers.push(column.buffer);
+          }
+          await consume(transfer(batch, buffers));
+        } finally {
+          native.free();
+        }
+      }
+      return { metadata, readMs, parseMs };
+    } catch (error) {
+      throw toError(error);
+    } finally {
+      reader?.free();
+    }
+  },
+
   async guessTxtFormat(input: string): Promise<TxtFormat> {
     await ensureInit();
     try {

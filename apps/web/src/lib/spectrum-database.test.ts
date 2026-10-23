@@ -2,11 +2,12 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { tableToIPC, type Table } from "apache-arrow";
 import type { ArrowInsertOptions } from "@duckdb/duckdb-wasm/blocking";
-import type { SpectrumMetadata, SpectrumPeakResult } from "ms-toolkit/core";
+import type { SpectrumMetadata, SpectrumPeakColumns, SpectrumPeakResult } from "ms-toolkit/core";
 import {
   openSpectrumDatabase,
   retentionTimePredicate,
   type SpectrumDataSource,
+  type SpectrumIngestor,
 } from "./spectrum-database";
 import { prepareSpectrumView } from "./spectrum";
 
@@ -60,6 +61,32 @@ afterEach(() => {
   sources.length = 0;
 });
 
+function columnsFor(peaks: readonly SpectrumPeakResult[], startIndex = 0): SpectrumPeakColumns {
+  return {
+    startIndex,
+    mz: Float64Array.from(peaks, (peak) => peak.mz),
+    intensity: Float64Array.from(peaks, (peak) => peak.intensity),
+    signalToNoise: Float64Array.from(peaks, (peak) => peak.signal_to_noise ?? 0),
+    signalToNoiseValidity: Uint8Array.from(peaks, (peak) => Number(peak.signal_to_noise !== null)),
+    retentionTime: Float64Array.from(peaks, (peak) => peak.retention_time ?? 0),
+    retentionTimeValidity: Uint8Array.from(peaks, (peak) =>
+      Number(peak.retention_time !== undefined),
+    ),
+  };
+}
+
+function producer(
+  peaks: readonly SpectrumPeakResult[],
+  metadata = metadataFor(peaks),
+): SpectrumIngestor {
+  return async (consume) => {
+    for (let offset = 0; offset < peaks.length; offset += 16_384) {
+      await consume(columnsFor(peaks.slice(offset, offset + 16_384), offset));
+    }
+    return { metadata, readMs: 1, parseMs: 2 };
+  };
+}
+
 function metadataFor(
   peaks: readonly SpectrumPeakResult[],
   filename = "spectrum.csv",
@@ -81,7 +108,7 @@ function metadataFor(
 }
 
 async function open(peaks: readonly SpectrumPeakResult[], filename?: string) {
-  const source = await openSpectrumDatabase(peaks, metadataFor(peaks, filename));
+  const source = await openSpectrumDatabase(producer(peaks, metadataFor(peaks, filename)));
   sources.push(source);
   return source;
 }
@@ -108,6 +135,7 @@ describe("in-memory spectrum queries (real DuckDB WASM)", () => {
     const stored = databaseQueries.run("SELECT * FROM SpectrumMetadata");
     expect(stored.numRows).toBe(1);
     expect(stored.get(0)?.toJSON()).toEqual(source.metadata);
+    expect(source.timings).toMatchObject({ readMs: 1, parseMs: 2, databaseMs: expect.any(Number) });
     expect(await source.queryPeaks()).toEqual(peaks.map((peak, id) => ({ ...peak, id })));
   });
 
@@ -186,11 +214,11 @@ describe("in-memory spectrum queries (real DuckDB WASM)", () => {
 
   it("rejects empty inputs and invalid RT measurements", async () => {
     const valid = [{ mz: 43, intensity: 100, signal_to_noise: null }];
-    await expect(openSpectrumDatabase([], metadataFor(valid))).rejects.toThrow("no peaks");
-    const invalid = [{ ...valid[0], retention_time: -1 }];
-    await expect(openSpectrumDatabase(invalid, metadataFor(invalid))).rejects.toThrow(
-      "Retention time",
+    await expect(openSpectrumDatabase(producer([], metadataFor(valid)))).rejects.toThrow(
+      "no peaks",
     );
+    const invalid = [{ ...valid[0], retention_time: -1 }];
+    await expect(openSpectrumDatabase(producer(invalid))).rejects.toThrow("Retention time");
   });
 
   it("stores filenames as values without interpreting quotes as SQL", async () => {
@@ -205,15 +233,50 @@ describe("in-memory spectrum queries (real DuckDB WASM)", () => {
   it("rejects inconsistent metadata rather than storing an invalid classification", async () => {
     const peaks = [{ mz: 43, intensity: 100, signal_to_noise: null, retention_time: 0 }];
     const metadata = metadataFor(peaks);
-    await expect(openSpectrumDatabase(peaks, { ...metadata, peakCount: 2 })).rejects.toThrow(
-      "metadata does not match",
-    );
-    await expect(openSpectrumDatabase(peaks, { ...metadata, type: "Direct" })).rejects.toThrow(
-      "metadata type and RT bounds are inconsistent",
-    );
     await expect(
-      openSpectrumDatabase(peaks, { ...metadata, minimumRetentionTime: null }),
+      openSpectrumDatabase(producer(peaks, { ...metadata, peakCount: 2 })),
+    ).rejects.toThrow("metadata does not match");
+    await expect(
+      openSpectrumDatabase(producer(peaks, { ...metadata, type: "Direct" })),
     ).rejects.toThrow("metadata type and RT bounds are inconsistent");
+    await expect(
+      openSpectrumDatabase(producer(peaks, { ...metadata, minimumRetentionTime: null })),
+    ).rejects.toThrow("metadata type and RT bounds are inconsistent");
+  });
+
+  it.each(["oversized", "out of order", "unequal columns", "invalid validity"] as const)(
+    "rejects %s columnar batches",
+    async (invalid) => {
+      const peaks = [{ mz: 43, intensity: 1, signal_to_noise: null }];
+      const valid = columnsFor(peaks);
+      const batch =
+        invalid === "oversized"
+          ? columnsFor(Array.from({ length: 16_385 }, () => peaks[0]))
+          : invalid === "out of order"
+            ? { ...valid, startIndex: 1 }
+            : invalid === "unequal columns"
+              ? { ...valid, intensity: new Float64Array(0) }
+              : { ...valid, signalToNoiseValidity: new Uint8Array([2]) };
+      await expect(
+        openSpectrumDatabase(async (consume) => {
+          await consume(batch);
+          return { metadata: metadataFor(peaks), readMs: 0, parseMs: 0 };
+        }),
+      ).rejects.toThrow(/Spectrum (batch|column)/);
+    },
+  );
+
+  it("propagates producer failures and leaves a later import usable", async () => {
+    await expect(
+      openSpectrumDatabase(async (consume) => {
+        await consume(columnsFor([{ mz: 43, intensity: 1, signal_to_noise: null }]));
+        throw new Error("Reader stopped at line 2");
+      }),
+    ).rejects.toThrow("Reader stopped at line 2");
+    const source = await open([{ mz: 57, intensity: 2, signal_to_noise: null }]);
+    expect(await source.queryPeaks()).toEqual([
+      { id: 0, mz: 57, intensity: 2, signal_to_noise: null },
+    ]);
   });
 });
 

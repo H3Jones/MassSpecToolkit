@@ -48,7 +48,7 @@ afterEach(() => {
 describe("spectrum database worker lifecycle", () => {
   it("waits for the worker and initializes an in-memory database", async () => {
     const source = await createSpectrumDatabase();
-    expect(mocks.instantiate).toHaveBeenCalledWith("/duckdb.wasm");
+    expect(mocks.instantiate).toHaveBeenCalledWith("http://localhost/duckdb.wasm");
     expect(mocks.open).toHaveBeenCalledWith({
       path: ":memory:",
       query: { castBigIntToDouble: true },

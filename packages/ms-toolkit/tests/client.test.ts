@@ -40,4 +40,17 @@ describe("worker request failures", () => {
     ).rejects.toThrow("line 2");
     expect(TestWorker.instances).toHaveLength(1);
   });
+
+  it("explicitly closes the worker, rejects pending work, and permits restart", async () => {
+    const { callClient, terminateClient } = await import("../src/core/index.ts");
+    const pending = callClient(() => new Promise<never>(() => {}));
+    const rejected = expect(pending).rejects.toThrow("closed");
+    terminateClient();
+    terminateClient();
+    await rejected;
+    expect(TestWorker.instances[0].terminate).toHaveBeenCalledOnce();
+    await expect(callClient(() => Promise.resolve(42))).resolves.toBe(42);
+    expect(TestWorker.instances).toHaveLength(2);
+    terminateClient();
+  });
 });

@@ -3,6 +3,7 @@ import { createSpectrumImportStore } from "./spectrum-import";
 import type { SpectrumDataset } from "./spectrum";
 
 const source = {
+  timings: { readMs: 0, parseMs: 0, databaseMs: 0 },
   queryPeaks: async () => [],
   dispose: () => {},
 };

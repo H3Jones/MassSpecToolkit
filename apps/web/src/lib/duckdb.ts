@@ -3,6 +3,7 @@ import mvpWasm from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import mvpWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import ehWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
+import DuckDBWorker from "./duckdb-worker.ts?worker&inline";
 
 /** A dataset owns its worker; replacing or discarding it releases the entire database. */
 export async function createSpectrumDatabase() {
@@ -12,7 +13,8 @@ export async function createSpectrumDatabase() {
   });
   if (!bundle.mainWorker) throw new Error("No compatible DuckDB worker is available.");
   // Single-threaded workers also work on GitHub Pages, without COOP/COEP headers.
-  const worker = new Worker(new URL("./duckdb-worker.ts", import.meta.url), { type: "module" });
+  // Inline the bootstrap to avoid a separately emitted nested-worker entry.
+  const worker = new DuckDBWorker();
   let failure: Error | undefined;
   const pending = new Set<(error: Error) => void>();
   const fail = (error: Error) => {
@@ -66,7 +68,7 @@ export async function createSpectrumDatabase() {
       url: new URL(bundle.mainWorker, location.href).href,
     });
     await run(() => loaded);
-    await run(() => db.instantiate(bundle.mainModule));
+    await run(() => db.instantiate(new URL(bundle.mainModule, location.href).href));
     await run(() => db.open({ path: ":memory:", query: { castBigIntToDouble: true } }));
     const connection = await run(() => db.connect());
     return { connection, run, dispose };

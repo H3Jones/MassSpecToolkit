@@ -7,7 +7,7 @@ use ms_core::isotopes::{
 };
 use ms_core::parser::parse_element_ranges as parse_ranges;
 use ms_core::spectrum::{
-    SpectrumMetadata as CoreSpectrumMetadata, SpectrumType as CoreSpectrumType,
+    MassSpectrum, SpectrumMetadata as CoreSpectrumMetadata, SpectrumType as CoreSpectrumType,
 };
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use ms_readers::readers::txt::{
@@ -258,13 +258,7 @@ pub fn parse_txt(
     spec: Option<Ts<TxtFormat>>,
     filename: Option<String>,
 ) -> Result<Ts<MassSpectrumResult>, JsError> {
-    let spec = if let Some(spec) = spec {
-        spec.to_rust()?.into()
-    } else {
-        txt::guess_txt_format(input.as_bytes()).map_err(|error| JsError::new(&error.to_string()))?
-    };
-    let spectrum =
-        txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))?;
+    let spectrum = read_txt_spectrum(input, spec)?;
     let result = MassSpectrumResult {
         metadata: filename
             .and_then(|name| spectrum.metadata(name))
@@ -281,6 +275,102 @@ pub fn parse_txt(
             .collect(),
     };
     Ok(result.into_ts()?)
+}
+
+fn read_txt_spectrum(input: &str, spec: Option<Ts<TxtFormat>>) -> Result<MassSpectrum, JsError> {
+    let spec = if let Some(spec) = spec {
+        spec.to_rust()?.into()
+    } else {
+        txt::guess_txt_format(input.as_bytes()).map_err(|error| JsError::new(&error.to_string()))?
+    };
+    txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// An owned, transferable columnar batch. Validity bytes distinguish missing values from zero.
+#[wasm_bindgen(getter_with_clone)]
+pub struct SpectrumPeakBatch {
+    #[wasm_bindgen(readonly)]
+    pub start_index: usize,
+    #[wasm_bindgen(readonly)]
+    pub mz: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub intensity: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub signal_to_noise: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub signal_to_noise_validity: Vec<u8>,
+    #[wasm_bindgen(readonly)]
+    pub retention_time: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub retention_time_validity: Vec<u8>,
+}
+
+/// Retains the full Rust spectrum, but exposes at most 16,384 rows at a time to JavaScript.
+#[wasm_bindgen]
+pub struct TxtSpectrumReader {
+    spectrum: MassSpectrum,
+    metadata: CoreSpectrumMetadata,
+    next_index: usize,
+}
+
+#[wasm_bindgen]
+impl TxtSpectrumReader {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        input: &str,
+        spec: Option<Ts<TxtFormat>>,
+        filename: String,
+    ) -> Result<TxtSpectrumReader, JsError> {
+        let spectrum = read_txt_spectrum(input, spec)?;
+        let metadata = spectrum
+            .metadata(filename)
+            .ok_or_else(|| JsError::new("The file contains no peaks."))?;
+        Ok(Self {
+            spectrum,
+            metadata,
+            next_index: 0,
+        })
+    }
+
+    pub fn metadata(&self) -> Result<Ts<SpectrumMetadata>, JsError> {
+        Ok(SpectrumMetadata::from(self.metadata.clone()).into_ts()?)
+    }
+
+    pub fn next_batch(&mut self) -> Option<SpectrumPeakBatch> {
+        let start = self.next_index;
+        if start == self.spectrum.peaks().len() {
+            return None;
+        }
+        let end = (start + 16_384).min(self.spectrum.peaks().len());
+        let count = end - start;
+        let mut batch = SpectrumPeakBatch {
+            start_index: start,
+            mz: Vec::with_capacity(count),
+            intensity: Vec::with_capacity(count),
+            signal_to_noise: Vec::with_capacity(count),
+            signal_to_noise_validity: Vec::with_capacity(count),
+            retention_time: Vec::with_capacity(count),
+            retention_time_validity: Vec::with_capacity(count),
+        };
+        for peak in &self.spectrum.peaks()[start..end] {
+            batch.mz.push(peak.mz());
+            batch.intensity.push(peak.intensity());
+            batch
+                .signal_to_noise
+                .push(peak.signal_to_noise().unwrap_or_default());
+            batch
+                .signal_to_noise_validity
+                .push(u8::from(peak.signal_to_noise().is_some()));
+            batch
+                .retention_time
+                .push(peak.retention_time().unwrap_or_default());
+            batch
+                .retention_time_validity
+                .push(u8::from(peak.retention_time().is_some()));
+        }
+        self.next_index = end;
+        Some(batch)
+    }
 }
 
 /// Parses a comma- or whitespace-separated range list for display before assignment.
