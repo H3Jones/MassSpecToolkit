@@ -101,7 +101,16 @@ export function createTicChart(
       },
       splitLine: { lineStyle: { color: textColor, opacity: 0.15 } },
     },
-    tooltip: { trigger: "axis", renderMode: "richText" },
+    tooltip: {
+      trigger: "axis",
+      renderMode: "richText",
+      valueFormatter: (value) => {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new TypeError("TIC tooltip intensity must be a finite number.");
+        }
+        return value.toExponential(3);
+      },
+    },
     dataZoom: [
       { id: "rt-inside", type: "inside", xAxisIndex: 0, filterMode: "none" },
       {
@@ -124,6 +133,7 @@ export function createTicChart(
         symbolSize: 7,
         lineStyle: { width: 1.5 },
         itemStyle: { color },
+        encode: { x: 0, y: 1, tooltip: [1] },
         data: points.map((point) => [point.retentionTime, point.intensity]),
         markLine: {
           silent: true,

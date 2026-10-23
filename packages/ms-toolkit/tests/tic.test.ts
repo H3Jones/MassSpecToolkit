@@ -21,6 +21,26 @@ function render(
 }
 
 describe("TIC chart", () => {
+  it.each([
+    [109685260.796875, "1.097e+8"],
+    [150, "1.500e+2"],
+    [0.00001234, "1.234e-5"],
+    [0, "0.000e+0"],
+  ])("formats tooltip intensity %s as %s without changing the data", (intensity, expected) => {
+    const option = createTicChart([{ retentionTime: 1.25, intensity }], [0, 2]);
+    const tooltip = option.tooltip;
+    if (!tooltip || Array.isArray(tooltip) || typeof tooltip.valueFormatter !== "function") {
+      throw new Error("The TIC must provide a tooltip value formatter.");
+    }
+    expect(tooltip.valueFormatter(intensity, 0)).toBe(expected);
+    expect(option.series).toMatchObject([
+      {
+        encode: { x: 0, y: 1, tooltip: [1] },
+        data: [[1.25, intensity]],
+      },
+    ]);
+  });
+
   it("plots original scan totals with RT and intensity axes, including zero", () => {
     const chart = render();
     expect(chart.getOption().series).toMatchObject([

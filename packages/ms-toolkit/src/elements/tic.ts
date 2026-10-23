@@ -53,6 +53,7 @@ template.innerHTML = `
 
 /**
  * `<ms-tic height="280">` displays original total ion intensity against RT.
+ * Tooltip intensities use scientific notation with four significant digits.
  * Assign `viewportSource` for bounded asynchronous queries of complete scan totals.
  * Zooming queries finer samples; ties in a bin retain the earliest RT.
  * `selectedRange` highlights an applied inclusive RT range without changing the viewport.
