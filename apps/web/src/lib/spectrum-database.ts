@@ -1,6 +1,12 @@
 import { Float64, Table, makeData, makeVector, vectorFromArray } from "apache-arrow";
 import type { SpectrumMetadata, SpectrumPeakColumns, SpectrumPeakResult } from "ms-toolkit/core";
-import { MAX_RENDERED_SPECTRUM_PEAKS, normalizeSpectrumPeaks } from "ms-toolkit/charts";
+import {
+  MAX_RENDERED_SPECTRUM_PEAKS,
+  normalizeSpectrumPeaks,
+  ticBinCount,
+  type TicViewportRequest,
+  type TicViewportResult,
+} from "ms-toolkit/charts";
 import { createSpectrumDatabase } from "./duckdb";
 
 export type RetentionTimeRange = readonly [number, number];
@@ -65,6 +71,7 @@ export interface SpectrumDataSource {
     request: SpectrumTableRequest,
     range?: RetentionTimeRange,
   ): Promise<MeasuredPeak[]>;
+  queryTic(this: void, request: TicViewportRequest): Promise<TicViewportResult>;
   dispose(): void;
 }
 
@@ -302,6 +309,17 @@ export async function openSpectrumDatabase(
       ),
     );
     databaseMs += performance.now() - finalizationStartedAt;
+    if (metadata.type === "Hyphenated") {
+      const ticStartedAt = performance.now();
+      await run(() =>
+        connection.query(`
+        CREATE TABLE tic AS
+        SELECT retention_time, sum(intensity)::DOUBLE AS intensity
+        FROM peaks WHERE retention_time IS NOT NULL GROUP BY retention_time
+      `),
+      );
+      databaseMs += performance.now() - ticStartedAt;
+    }
     let cachedSelection: { predicate: string; pending: Promise<SpectrumSelection> } | undefined;
     async function querySelection(range?: RetentionTimeRange): Promise<SpectrumSelection> {
       const predicate = retentionTimePredicate(range);
@@ -351,6 +369,41 @@ export async function openSpectrumDatabase(
       metadata,
       timings: { readMs, parseMs, databaseMs },
       querySelection,
+      async queryTic(request) {
+        const bins = ticBinCount(request);
+        if (metadata.type === "Direct") return run(async () => ({ points: [], visibleCount: 0 }));
+        const [minimum, maximum] = request.rtRange;
+        const bin =
+          minimum === maximum
+            ? "(retention_time * 0)"
+            : `least(${bins - 1},
+          floor(((retention_time - ${minimum}::DOUBLE) / ${maximum - minimum}::DOUBLE) * ${bins}))`;
+        const result = await run(() =>
+          connection.query(`
+          WITH bins AS (
+            SELECT arg_min(
+              struct_pack(retention_time := retention_time, intensity := intensity),
+              struct_pack(strength := -intensity, rt := retention_time)
+            ) AS winner, count(*)::DOUBLE AS bin_count
+            FROM tic WHERE retention_time BETWEEN ${minimum}::DOUBLE AND ${maximum}::DOUBLE
+            GROUP BY ${bin}
+          )
+          SELECT winner.retention_time AS retention_time, winner.intensity AS intensity,
+            sum(bin_count) OVER ()::DOUBLE AS visible_count
+          FROM bins ORDER BY winner.retention_time
+        `),
+        );
+        if (result.numRows > bins) throw new Error("The TIC query exceeded its bin budget.");
+        return {
+          points: Array.from(result, (row) => ({
+            retentionTime: numberValue(row.retention_time, "TIC retention time"),
+            intensity: numberValue(row.intensity, "total ion intensity"),
+          })),
+          visibleCount: result.numRows
+            ? numberValue(result.get(0)?.visible_count, "TIC scan count")
+            : 0,
+        };
+      },
       async queryChart(request, range) {
         const bins = chartBins(request);
         const [minimum, maximum] = request.mzRange;

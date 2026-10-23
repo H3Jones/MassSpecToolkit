@@ -33,6 +33,10 @@ const queryChart = vi.fn(async () => ({
   visibleCount: 1,
 }));
 const dispose = vi.fn();
+const queryTic = vi.fn(async () => ({
+  points: [{ retentionTime: 0, intensity: 1 }],
+  visibleCount: 1,
+}));
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -52,6 +56,7 @@ beforeEach(() => {
     querySelection,
     queryTablePage,
     queryChart,
+    queryTic,
     dispose,
   };
   mocks.ingestTxt.mockImplementation(async (_file, _spec, callback: typeof consume) => {
@@ -113,6 +118,9 @@ describe("worker-side spectrum coordination", () => {
     const chart = { mzRange: [0, 100] as const, binCount: 50 };
     expect((await worker.queryChart(chart, [0, 0])).peaks).toHaveLength(1);
     expect(queryChart).toHaveBeenCalledWith(chart, [0, 0]);
+    const tic = { rtRange: [0, 0] as const, binCount: 50 };
+    expect((await worker.queryTic(tic)).points).toHaveLength(1);
+    expect(queryTic).toHaveBeenCalledWith(tic);
     const page = { pageIndex: 0, pageSize: 10, sorting: [] };
     expect(await worker.queryTablePage(page, [0, 0])).toHaveLength(1);
     expect(queryTablePage).toHaveBeenCalledWith(page, [0, 0]);
@@ -120,6 +128,7 @@ describe("worker-side spectrum coordination", () => {
     expect(dispose).toHaveBeenCalledOnce();
     await expect(worker.querySelection()).rejects.toThrow("not open");
     await expect(worker.queryChart(chart)).rejects.toThrow("not open");
+    await expect(worker.queryTic(tic)).rejects.toThrow("not open");
     await expect(worker.queryTablePage(page)).rejects.toThrow("not open");
     await expect(worker.importFile(file)).rejects.toThrow("closed");
   });

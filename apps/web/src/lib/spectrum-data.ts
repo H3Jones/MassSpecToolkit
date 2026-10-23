@@ -4,6 +4,7 @@ import {
   type TxtFormat,
   type SpectrumImportProgress,
 } from "ms-toolkit/core";
+import type { TicViewportRequest } from "ms-toolkit/charts";
 import {
   openSpectrumDatabase,
   type RetentionTimeRange,
@@ -73,6 +74,10 @@ export function createSpectrumDataWorker() {
     async queryTablePage(request: SpectrumTableRequest, range?: RetentionTimeRange) {
       if (closed || !source) throw new Error("The spectrum database is not open.");
       return source.queryTablePage(request, range);
+    },
+    async queryTic(request: TicViewportRequest) {
+      if (closed || !source) throw new Error("The spectrum database is not open.");
+      return source.queryTic(request);
     },
     async dispose() {
       closed = true;

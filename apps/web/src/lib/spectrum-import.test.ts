@@ -7,6 +7,7 @@ const source = {
   querySelection: async () => ({ peakCount: 0 }),
   queryTablePage: async () => [],
   queryChart: async () => ({ peaks: [], visibleCount: 0 }),
+  queryTic: async () => ({ points: [], visibleCount: 0 }),
   dispose: () => {},
 };
 

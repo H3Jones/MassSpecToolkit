@@ -55,6 +55,7 @@ function mockParsedPeaks(peaks: readonly SpectrumPeakResult[]) {
       timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
       querySelection: vi.fn(async (range) => selection(range)),
       queryChart: vi.fn(async () => ({ peaks: [], visibleCount: 0 })),
+      queryTic: vi.fn(async () => ({ points: [], visibleCount: 0 })),
       queryTablePage: vi.fn(async (request, range) => {
         const maximum = selection(range).summary?.maximumIntensity ?? 0;
         return selected(range)
@@ -226,6 +227,7 @@ describe("spectrum imports", () => {
       },
       queryTablePage: async () => [],
       queryChart: async () => ({ peaks: [], visibleCount: 0 }),
+      queryTic: async () => ({ points: [], visibleCount: 0 }),
       dispose,
     });
     await expect(readSpectrumFile(new File([""], "db.asc"))).rejects.toThrow("Query failed");

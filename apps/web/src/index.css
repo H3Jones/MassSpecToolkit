@@ -185,17 +185,24 @@
   }
 
   .spectrum-chart,
+  .tic-chart,
   .spectrum-table {
     display: block;
     min-width: 0;
     font-size: 0.875rem;
   }
 
-  .spectrum-chart {
+  .spectrum-chart,
+  .tic-chart {
     color: var(--foreground);
   }
 
+  .tic-chart::part(status) {
+    color: var(--muted-foreground);
+  }
+
   .spectrum-chart::part(status),
+  .tic-chart::part(error),
   .spectrum-table::part(error) {
     color: var(--destructive);
   }

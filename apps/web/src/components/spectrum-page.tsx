@@ -9,11 +9,14 @@ import {
   type SpectrumView,
 } from "@/lib/spectrum";
 import type { SpectrumImportState } from "@/lib/spectrum-import";
-import type { SpectrumIntensityMode } from "ms-toolkit/charts";
+import type { SpectrumIntensityMode, TicPoint } from "ms-toolkit/charts";
 import type { MsMassSpectrum } from "ms-toolkit/mass-spectrum";
+import type { MsTic } from "ms-toolkit/tic";
+import type { RetentionTimeRange } from "@/lib/spectrum-database";
 import type { MsTable, MsTableColumn, MsTablePage, MsTablePageRequest } from "ms-toolkit/table";
 import "ms-toolkit/mass-spectrum";
 import "ms-toolkit/table";
+import "ms-toolkit/tic";
 
 const columns: MsTableColumn<MeasuredPeak>[] = [
   { accessorKey: "mz", header: "m/z", sortDescFirst: true },
@@ -48,6 +51,8 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
   const [appliedRange, setAppliedRange] = useState(dataset.retentionTimeRange);
   const [querying, setQuerying] = useState(false);
   const [queryError, setQueryError] = useState("");
+  const [ticError, setTicError] = useState("");
+  const tic = useRef<MsTic>(null);
   const queryRun = useRef(0);
   const tableRun = useRef(0);
   const [tablePage, setTablePage] = useState<MsTablePage<MeasuredPeak>>({
@@ -66,43 +71,86 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
     },
     [],
   );
-  async function queryRetentionTime() {
-    const current = ++queryRun.current;
-    setQuerying(true);
-    setQueryError("");
-    const startedAt = performance.now();
+  const queryRetentionTime = useCallback(
+    async (range: RetentionTimeRange) => {
+      const current = ++queryRun.current;
+      setQuerying(true);
+      setQueryError("");
+      const startedAt = performance.now();
+      try {
+        const nextView = await loadSpectrumView(dataset.source, range);
+        if (current !== queryRun.current) return;
+        ++tableRun.current;
+        setTableLoading(false);
+        setTableError("");
+        setTablePage({
+          rows: nextView.firstPage,
+          rowCount: nextView.peakCount,
+          pageIndex: 0,
+          pageSize: 10,
+          sorting: [],
+        });
+        setView(nextView);
+        setAppliedRange(range);
+        setRenderError("");
+        console.debug("[ms-toolkit] Spectrum RT query complete", {
+          selectedPeakCount: nextView.peakCount,
+          durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        });
+      } catch (error) {
+        if (current === queryRun.current) {
+          setQueryError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (current === queryRun.current) setQuerying(false);
+      }
+    },
+    [dataset.source],
+  );
+  useEffect(() => {
+    const element = tic.current;
+    if (!element) return;
+    const onSelect = (event: Event) => {
+      const { retentionTime } = (event as CustomEvent<TicPoint>).detail;
+      setMinimumRt(String(retentionTime));
+      setMaximumRt(String(retentionTime));
+      void queryRetentionTime([retentionTime, retentionTime]);
+    };
+    const onTicError = (event: Event) => setTicError((event as CustomEvent<Error>).detail.message);
+    const onLoaded = () => setTicError("");
+    element.addEventListener("ms-rt-select", onSelect);
+    element.addEventListener("ms-error", onTicError);
+    element.addEventListener("ms-viewport-loaded", onLoaded);
     try {
-      if (!minimumRt.trim() || !maximumRt.trim()) {
-        throw new RangeError("Enter both RT bounds.");
-      }
-      const range = [Number(minimumRt), Number(maximumRt)] as const;
-      const nextView = await loadSpectrumView(dataset.source, range);
-      if (current !== queryRun.current) return;
-      ++tableRun.current;
-      setTableLoading(false);
-      setTableError("");
-      setTablePage({
-        rows: nextView.firstPage,
-        rowCount: nextView.peakCount,
-        pageIndex: 0,
-        pageSize: 10,
-        sorting: [],
-      });
-      setView(nextView);
-      setAppliedRange(range);
-      setRenderError("");
-      console.debug("[ms-toolkit] Spectrum RT query complete", {
-        selectedPeakCount: nextView.peakCount,
-        durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
-      });
+      const minimum = metadata.minimumRetentionTime;
+      const maximum = metadata.maximumRetentionTime;
+      if (minimum === null || maximum === null)
+        throw new Error("Hyphenated metadata is missing RT bounds.");
+      element.viewportSource = {
+        rtRange: [minimum, maximum],
+        query: (request) => dataset.source.queryTic(request),
+      };
     } catch (error) {
-      if (current === queryRun.current) {
-        setQueryError(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      if (current === queryRun.current) setQuerying(false);
+      element.dispatchEvent(
+        new CustomEvent("ms-error", {
+          detail: error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
     }
-  }
+    return () => {
+      element.removeEventListener("ms-rt-select", onSelect);
+      element.removeEventListener("ms-error", onTicError);
+      element.removeEventListener("ms-viewport-loaded", onLoaded);
+    };
+  }, [
+    dataset.source,
+    metadata.minimumRetentionTime,
+    metadata.maximumRetentionTime,
+    queryRetentionTime,
+  ]);
+  useEffect(() => {
+    if (tic.current) tic.current.selectedRange = appliedRange;
+  }, [appliedRange]);
   const onError = useCallback((event: Event) => {
     setRenderError((event as CustomEvent<Error>).detail.message);
   }, []);
@@ -205,7 +253,11 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
               aria-busy={querying}
               onSubmit={(event) => {
                 event.preventDefault();
-                void queryRetentionTime();
+                if (!minimumRt.trim() || !maximumRt.trim()) {
+                  setQueryError("Enter both RT bounds.");
+                  return;
+                }
+                void queryRetentionTime([Number(minimumRt), Number(maximumRt)]);
               }}
             >
               <p id="rt-description" className="text-muted-foreground">
@@ -293,6 +345,32 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           </dl>
         </CardContent>
       </Card>
+      {metadata.type === "Hyphenated" && (
+        <Card className="min-w-0 shadow-none">
+          <CardHeader>
+            <CardTitle>Total ion chromatogram (TIC)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Original intensities summed at each RT, in the file&apos;s input units. Click a point
+              to display that exact RT slice in the spectrum and peak list. Use the numeric RT
+              bounds above for an inclusive range. Zoom or drag the RT slider for finer detail; Home
+              or Restore resets the axis. Arrow keys inspect displayed points; Enter or Space
+              selects.
+            </p>
+          </CardHeader>
+          <CardContent className="min-w-0">
+            {ticError && (
+              <p role="alert" className="mb-2 text-sm text-destructive">
+                Unable to display the TIC: {ticError}
+              </p>
+            )}
+            {createElement("ms-tic", {
+              ref: tic,
+              className: "tic-chart",
+              color: dark ? "#7da7ff" : "#2563eb",
+            })}
+          </CardContent>
+        </Card>
+      )}
       {renderError && (
         <p role="alert" className="break-words text-sm text-destructive">
           Unable to display the spectrum or table: {renderError}

@@ -34,6 +34,7 @@ export default defineConfig({
       "mass-split": src("elements/mass-split.ts"),
       "peak-assignment": src("elements/peak-assignment.ts"),
       "mass-spectrum": src("elements/mass-spectrum.ts"),
+      tic: src("elements/tic.ts"),
       table: src("elements/table.ts"),
       charts: src("charts/index.ts"),
     },

@@ -93,6 +93,7 @@ export async function openSpectrumFile(
       querySelection: (range) => run(() => remote.querySelection(range)),
       queryChart: (request, range) => run(() => remote.queryChart(request, range)),
       queryTablePage: (request, range) => run(() => remote.queryTablePage(request, range)),
+      queryTic: (request) => run(() => remote.queryTic(request)),
       dispose,
     };
   } catch (error) {

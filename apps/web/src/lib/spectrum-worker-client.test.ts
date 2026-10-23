@@ -6,6 +6,7 @@ const remote = vi.hoisted(() => ({
   importFile: vi.fn(),
   querySelection: vi.fn(),
   queryChart: vi.fn(),
+  queryTic: vi.fn(),
   queryTablePage: vi.fn(),
   dispose: vi.fn(),
 }));
@@ -39,6 +40,9 @@ beforeEach(() => {
   });
   remote.querySelection.mockReset().mockResolvedValue({ peakCount: 1 });
   remote.queryChart.mockReset().mockResolvedValue({ peaks: rows, visibleCount: 1 });
+  remote.queryTic
+    .mockReset()
+    .mockResolvedValue({ points: [{ retentionTime: 0, intensity: 1 }], visibleCount: 1 });
   remote.queryTablePage.mockReset().mockResolvedValue(rows);
   remote.dispose.mockReset().mockResolvedValue(undefined);
   TestWorker.instances = [];
@@ -113,6 +117,12 @@ describe("spectrum data worker client", () => {
     const chart = { mzRange: [0, 100] as const, binCount: 50 };
     expect(await source.queryChart(chart, [0, 0])).toEqual({ peaks: rows, visibleCount: 1 });
     expect(remote.queryChart).toHaveBeenCalledWith(chart, [0, 0]);
+    const tic = { rtRange: [0, 0] as const, binCount: 20 };
+    expect(await source.queryTic(tic)).toEqual({
+      points: [{ retentionTime: 0, intensity: 1 }],
+      visibleCount: 1,
+    });
+    expect(remote.queryTic).toHaveBeenCalledWith(tic);
     const page = { pageIndex: 0, pageSize: 10, sorting: [{ id: "mz", desc: false }] };
     expect(await source.queryTablePage(page, [0, 0])).toEqual(rows);
     expect(remote.queryTablePage).toHaveBeenCalledWith(page, [0, 0]);
@@ -124,6 +134,7 @@ describe("spectrum data worker client", () => {
     const cleanup = new Promise<void>((resolve) => {
       finishCleanup = resolve;
     });
+
     remote.dispose.mockReturnValue(cleanup);
     remote.querySelection.mockReturnValue(new Promise(() => {}));
     const source = await openSpectrumFile(new File([""], "spectrum.asc"));
@@ -138,6 +149,17 @@ describe("spectrum data worker client", () => {
     await cleanup;
     expect(TestWorker.instances[0].terminate).toHaveBeenCalledOnce();
     await expect(source.querySelection()).rejects.toThrow("closed");
+  });
+
+  it("rejects in-flight and subsequent TIC queries on disposal", async () => {
+    remote.queryTic.mockReturnValueOnce(new Promise(() => {}));
+    const source = await openSpectrumFile(new File([""], "spectrum.asc"));
+    const request = { rtRange: [0, 1] as const, binCount: 10 };
+    const pending = source.queryTic(request);
+    const rejected = expect(pending).rejects.toThrow("closed");
+    source.dispose();
+    await rejected;
+    await expect(source.queryTic(request)).rejects.toThrow("closed");
   });
 
   it.each(["error", "messageerror"])(

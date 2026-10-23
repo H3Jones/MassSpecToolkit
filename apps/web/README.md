@@ -36,7 +36,9 @@ each calculator plus an All tools link. The landing page also links to these pag
   summary, and sortable peak table. Rust supplies full-file `SpectrumMetadata`
   (filename, measurement bounds, peak count, and `Direct`/`Hyphenated` type), also
   stored in DuckDB's `SpectrumMetadata` table. Only Hyphenated spectra show RT
-  selectors, starting at the first RT and retaining original input units.
+  selectors and a total ion chromatogram (TIC), starting at the first RT and retaining
+  original input units. Click a TIC point to select one RT slice; use numeric bounds
+  for wider inclusive ranges.
   One dataset stays in memory across navigation; refreshing clears it. Failed
   imports retain the previous spectrum.
 - `#/tools/ion-calculator`: formula mass, m/z, and degree of unsaturation.
@@ -74,15 +76,21 @@ Calculator pages are lazy-loaded, keeping chart code off the initial landing
 page. They reuse the existing toolkit web components, including their forms,
 loading states, errors, and results; no calculations are reimplemented in React.
 The spectrum page delegates ingestion and database coordination to a data worker,
-reusing the toolkit's WASM reader, chart, and table. Files are read in the Rust
-worker, which transfers bounded columnar batches with insertion backpressure.
+reusing the toolkit's WASM reader, chart, and table. The parser worker streams UTF-8
+in 64 KiB reads and transfers bounded columnar batches with insertion backpressure.
+Imports report progress and can be cancelled; selecting another file also cancels
+the previous import. Failed or cancelled imports retain the last valid dataset.
 DuckDB's single-threaded worker and WASM
 assets are bundled locally, without cross-origin isolation requirements or CDN
 requests. Separate queries return selection summaries, width-bounded strongest-peak
 chart samples, and database-sorted table pages of at most 100 rows. All original
 measurements stay in DuckDB; RT filters do not sum or tolerance-bin spectra.
-Parsing still materializes the full input inside a worker. Persistence and
-streaming ingestion are not implemented yet.
+The TIC separately sums original intensities per non-null RT in DuckDB. Zoomable,
+width-bounded samples retain the strongest complete scan per bin, with earliest RT
+breaking ties; zooming retrieves finer detail without moving all scans to the UI.
+Parsing retains an unfinished line and bounded batches, not the full input or peak
+vector. The database still holds every measurement in memory; persistence is not
+implemented yet.
 No imported data is sent to a server.
 
 The local `ms-toolkit` dependency is aliased to its TypeScript source in the

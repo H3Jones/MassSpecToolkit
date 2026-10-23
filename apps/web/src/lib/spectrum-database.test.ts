@@ -120,6 +120,94 @@ async function queryRows(source: SpectrumDataSource, range?: RetentionTimeRange,
 }
 
 describe("in-memory spectrum queries (real DuckDB WASM)", () => {
+  it("sums original intensities per exact RT, excluding null RT and retaining zero and duplicate masses", async () => {
+    const source = await open([
+      { mz: 43, intensity: 10000, signal_to_noise: null },
+      { mz: 43, intensity: 0, signal_to_noise: null, retention_time: 0 },
+      { mz: 43, intensity: 20, signal_to_noise: null, retention_time: 2 },
+      { mz: 43, intensity: 30, signal_to_noise: null, retention_time: 2 },
+      { mz: 80, intensity: 10, signal_to_noise: null, retention_time: 1 },
+    ]);
+    const request = { rtRange: [0, 2] as const, binCount: 10 };
+    const expected = {
+      points: [
+        { retentionTime: 0, intensity: 0 },
+        { retentionTime: 1, intensity: 10 },
+        { retentionTime: 2, intensity: 50 },
+      ],
+      visibleCount: 3,
+    };
+    expect(await source.queryTic(request)).toEqual(expected);
+    await source.querySelection([1, 1]);
+    expect(await source.queryTic(request)).toEqual(expected);
+    expect(await source.queryTic({ rtRange: [2, 2], binCount: 1 })).toEqual({
+      points: [{ retentionTime: 2, intensity: 50 }],
+      visibleCount: 1,
+    });
+    expect(await source.queryTic({ rtRange: [3, 4], binCount: 10 })).toEqual({
+      points: [],
+      visibleCount: 0,
+    });
+    expect((await queryRows(source, [2, 2])).map((peak) => peak.intensity)).toEqual([20, 30]);
+  });
+
+  it("bounds TIC overviews after scan aggregation, breaks ties by RT, and resolves omitted scans on zoom", async () => {
+    const peaks = Array.from({ length: 2400 }, (_, id) => ({
+      mz: 43,
+      intensity: id % 2 === 0 ? 10 : 5,
+      signal_to_noise: null,
+      retention_time: Math.floor(id / 2),
+    }));
+    const source = await open(peaks);
+    const overview = await source.queryTic({ rtRange: [0, 1199], binCount: 2 });
+    expect(overview).toEqual({
+      points: [
+        { retentionTime: 0, intensity: 15 },
+        { retentionTime: 600, intensity: 15 },
+      ],
+      visibleCount: 1200,
+    });
+    const zoom = await source.queryTic({ rtRange: [5, 8], binCount: 100 });
+    expect(zoom.points.map((point) => point.retentionTime)).toEqual([5, 6, 7, 8]);
+    expect(zoom.visibleCount).toBe(4);
+    expect(
+      (await source.queryTic({ rtRange: [0, 1199], binCount: 10000 })).points.length,
+    ).toBeLessThanOrEqual(1000);
+  });
+
+  it("selects a bin's strongest complete scan rather than its strongest individual measurement", async () => {
+    const source = await open([
+      { mz: 43, intensity: 60, signal_to_noise: null, retention_time: 1 },
+      { mz: 44, intensity: 60, signal_to_noise: null, retention_time: 1 },
+      { mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2 },
+    ]);
+    expect(await source.queryTic({ rtRange: [1, 2], binCount: 1 })).toEqual({
+      points: [{ retentionTime: 1, intensity: 120 }],
+      visibleCount: 2,
+    });
+  });
+
+  it("returns an empty TIC for Direct spectra and rejects malformed requests before querying", async () => {
+    const source = await open([{ mz: 43, intensity: 10, signal_to_noise: null }]);
+    expect(await source.queryTic({ rtRange: [0, 1], binCount: 1 })).toEqual({
+      points: [],
+      visibleCount: 0,
+    });
+    const previousCalls = databaseQueries.run.mock.calls.length;
+    for (const rtRange of [
+      [-1, 1],
+      [2, 1],
+      [NaN, 1],
+      [0, Infinity],
+    ] as const) {
+      await expect(source.queryTic({ rtRange, binCount: 1 })).rejects.toThrow("TIC RT bounds");
+    }
+    for (const binCount of [0, -1, 1.5, NaN, Infinity]) {
+      await expect(source.queryTic({ rtRange: [0, 1], binCount })).rejects.toThrow("TIC bin count");
+    }
+    expect(databaseQueries.run.mock.calls.length).toBe(previousCalls);
+  });
+
   it("preserves original row identities, order, intensities, duplicates, and nullable S/N", async () => {
     const peaks = [
       { mz: 57, intensity: 250, signal_to_noise: null },
