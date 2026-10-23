@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -6,6 +14,7 @@ import {
   Atom,
   Braces,
   Check,
+  ChevronDown,
   ChevronRight,
   Code2,
   Cpu,
@@ -14,6 +23,7 @@ import {
   ShieldCheck,
   Sun,
 } from "lucide-react";
+import { DropdownMenu } from "radix-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +37,41 @@ const SpectrumPage = lazy(() => import("@/components/spectrum-page"));
 
 const repository = "https://github.com/H3Jones/MassSpecToolkit";
 const documentation = `${repository}/tree/HEAD/packages/ms-toolkit#readme`;
+
+function NavigationDropdown({
+  label,
+  active,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <DropdownMenu.Root modal={false}>
+      <DropdownMenu.Trigger
+        className="nav-link group inline-flex items-center gap-1"
+        data-active={active}
+      >
+        {label}
+        <ChevronDown
+          className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
+          aria-hidden="true"
+        />
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={10}
+          collisionPadding={8}
+          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+        >
+          {children}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
 
 const peaks = [
   [48, 19],
@@ -218,16 +263,41 @@ function App() {
             </span>
           </a>
           <nav aria-label="Main navigation" className="flex items-center gap-1 sm:gap-5">
-            <a
-              className="nav-link"
-              href="#/spectrum"
-              aria-current={route.kind === "spectrum" ? "page" : undefined}
-            >
-              Spectra
-            </a>
-            <a className="nav-link" href="#toolkit">
-              Toolkit
-            </a>
+            <NavigationDropdown label="Spectra" active={route.kind === "spectrum"}>
+              <DropdownMenu.Item asChild>
+                <a
+                  className="nav-menu-item"
+                  href="#/spectrum"
+                  aria-current={route.kind === "spectrum" ? "page" : undefined}
+                >
+                  <Layers3 className="size-4 shrink-0" aria-hidden="true" />
+                  Spectrum inspector
+                </a>
+              </DropdownMenu.Item>
+            </NavigationDropdown>
+            <NavigationDropdown label="Toolkit" active={route.kind === "tool"}>
+              {tools.map((tool) => (
+                <DropdownMenu.Item key={tool.id} asChild>
+                  <a
+                    className="nav-menu-item"
+                    href={toolHref(tool)}
+                    aria-current={
+                      route.kind === "tool" && route.tool.id === tool.id ? "page" : undefined
+                    }
+                  >
+                    <tool.icon className="size-4 shrink-0" aria-hidden="true" />
+                    {tool.name}
+                  </a>
+                </DropdownMenu.Item>
+              ))}
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              <DropdownMenu.Item asChild>
+                <a className="nav-menu-item" href="#toolkit">
+                  <ArrowRight className="size-4 shrink-0" aria-hidden="true" />
+                  All tools
+                </a>
+              </DropdownMenu.Item>
+            </NavigationDropdown>
             <a className="nav-link" href="#developers">
               Developers
             </a>

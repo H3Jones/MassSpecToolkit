@@ -141,7 +141,11 @@
   }
 
   .nav-link {
-    @apply rounded-sm p-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:text-sm;
+    @apply rounded-sm p-1 text-xs text-muted-foreground transition-colors hover:text-foreground data-[active=true]:text-foreground data-[state=open]:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:text-sm;
+  }
+
+  .nav-menu-item {
+    @apply flex items-center gap-2.5 rounded-md px-3 py-2 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground aria-[current=page]:font-medium aria-[current=page]:text-primary;
   }
 
   .section-kicker {

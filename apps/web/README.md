@@ -28,7 +28,8 @@ linting, and type checks; the production build also runs TypeScript. Both
 
 ## Scope
 
-The landing page links to the spectrum inspector and calculators:
+The top-bar Spectra dropdown opens the spectrum inspector, and Toolkit lists
+each calculator plus an All tools link. The landing page also links to these pages:
 
 - `#/spectrum`: import an ASC peak list and inspect its spectrum, summary, and
   sortable peak table. One dataset stays in memory across navigation; refreshing
