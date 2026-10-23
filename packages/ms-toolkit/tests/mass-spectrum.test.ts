@@ -103,21 +103,40 @@ describe("spectrum normalization", () => {
 describe("viewport peak selection", () => {
   const limit = MAX_RENDERED_SPECTRUM_PEAKS;
 
-  it.each([0, limit - 1, limit, limit + 1])("enforces the budget for %s visible peaks", (count) => {
-    const peaks = Object.freeze(
-      Array.from({ length: count }, (_, index) => Object.freeze({ mz: index, int: index })),
-    );
-    const selection = selectSpectrumPeaks(peaks, [0, count]);
-    expect(selection.visibleCount).toBe(count);
-    expect(selection.indices).toEqual(
-      Array.from(
-        { length: Math.min(count, limit) },
-        (_, index) => Math.max(0, count - limit) + index,
-      ),
-    );
-  });
+  function expectedBinnedIndices(
+    peaks: readonly { mz: number; int: number }[],
+    domain: readonly [number, number],
+    binCount = limit,
+  ) {
+    const bins = new Map<number, number>();
+    for (let index = 0; index < peaks.length; index++) {
+      const peak = peaks[index]!;
+      if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
+      const bin = Math.min(
+        binCount - 1,
+        Math.floor(((peak.mz - domain[0]) / (domain[1] - domain[0])) * binCount),
+      );
+      const currentIndex = bins.get(bin);
+      if (currentIndex === undefined || peak.int > peaks[currentIndex]!.int) {
+        bins.set(bin, index);
+      }
+    }
+    return [...bins.values()].sort((a, b) => a - b);
+  }
 
-  it("matches a full-sort oracle for unsorted peaks, ties, zeros, and extreme intensities", () => {
+  it.each([0, limit - 1, limit, limit + 1])(
+    "enforces the bin budget for %s visible peaks",
+    (count) => {
+      const peaks = Array.from({ length: count }, (_, index) => ({ mz: index, int: index }));
+      const domain = [0, Math.max(1, count)] as const;
+      const selection = selectSpectrumPeaks(peaks, domain);
+      expect(selection.visibleCount).toBe(count);
+      expect(selection.indices).toEqual(expectedBinnedIndices(peaks, domain));
+      expect(selection.indices.length).toBeLessThanOrEqual(limit);
+    },
+  );
+
+  it("selects the strongest peak in each bin for unsorted peaks and extreme intensities", () => {
     const peaks = Array.from({ length: limit * 3 }, (_, index) => ({
       mz: (index * 7919) % (limit * 3),
       int: index % 97 === 0 ? Number.MAX_VALUE : (index * 1543) % 137,
@@ -126,38 +145,55 @@ describe("viewport peak selection", () => {
     const candidates = peaks
       .map((peak, index) => ({ ...peak, index }))
       .filter((peak) => peak.mz >= domain[0] && peak.mz <= domain[1]);
-    const expected = candidates
-      .slice()
-      .sort((a, b) => b.int - a.int || a.index - b.index)
-      .slice(0, limit)
-      .map((peak) => peak.index)
-      .sort((a, b) => a - b);
     expect(selectSpectrumPeaks(peaks, domain)).toEqual({
-      indices: expected,
+      indices: expectedBinnedIndices(peaks, domain),
       visibleCount: candidates.length,
     });
   });
 
-  it("retains the first rows for equal or zero intensities without combining duplicate m/z", () => {
+  it("retains the first row for equal intensities in overlapping bins", () => {
     const peaks = Array.from({ length: limit + 10 }, () => ({ mz: 43, int: 0 }));
     expect(selectSpectrumPeaks(peaks, [43, 44])).toEqual({
-      indices: Array.from({ length: limit }, (_, index) => index),
+      indices: [0],
       visibleCount: peaks.length,
     });
   });
 
-  it("includes both viewport boundaries and preserves original order", () => {
+  it("selects the strongest peak per bin, includes both boundaries, and preserves source order", () => {
     const peaks = [
-      { mz: 2, int: 1 },
-      { mz: 1, int: 2 },
-      { mz: 1, int: 3 },
-      { mz: 3, int: 4 },
+      { mz: 0.1, int: 4 },
+      { mz: 0.2, int: 8 },
+      { mz: 1.9, int: 6 },
+      { mz: 2.5, int: 3 },
+      { mz: 5, int: 7 },
+      { mz: 10, int: 9 },
     ];
-    expect(selectSpectrumPeaks(peaks, [1, 2])).toEqual({ indices: [0, 1, 2], visibleCount: 3 });
-    expect(selectSpectrumPeaks(peaks, [4, 5])).toEqual({ indices: [], visibleCount: 0 });
+    expect(selectSpectrumPeaks(peaks, [0, 10], 4)).toEqual({
+      indices: [1, 3, 4, 5],
+      visibleCount: peaks.length,
+    });
+    expect(selectSpectrumPeaks(peaks, [11, 12], 4)).toEqual({ indices: [], visibleCount: 0 });
   });
 
-  it("reveals weak peaks on zoom without changing dataset-wide normalization or identities", () => {
+  it("collapses subpixel peaks to the strongest one and reveals them when zoomed", () => {
+    const peaks = [
+      { mz: 202.68987, int: 454_818 },
+      { mz: 202.69008, int: 354_454 },
+      { mz: 202.6904, int: 473_045 },
+      { mz: 202.69099, int: 351_926 },
+      { mz: 202.6914, int: 300_000 },
+    ];
+    expect(selectSpectrumPeaks(peaks, [0, 250], 783)).toEqual({
+      indices: [2],
+      visibleCount: peaks.length,
+    });
+    expect(selectSpectrumPeaks(peaks, [202.689, 202.692], 783)).toEqual({
+      indices: [0, 1, 2, 3, 4],
+      visibleCount: peaks.length,
+    });
+  });
+
+  it("keeps the strongest overlapping peak without changing normalization or identity", () => {
     const data = normalizeSpectrumPeaks([
       ...Array.from({ length: limit }, (_, index) => ({ mz: index / limit, int: 1000 })),
       { mz: 43, int: 1, label: "weak" },
@@ -165,18 +201,20 @@ describe("viewport peak selection", () => {
     ]);
     expect(selectSpectrumPeaks(data, [0, 50]).indices).not.toContain(limit);
     const zoomed = selectSpectrumPeaks(data, [42, 44]);
-    expect(zoomed).toEqual({ indices: [limit, limit + 1], visibleCount: 2 });
+    expect(zoomed).toEqual({ indices: [limit + 1], visibleCount: 2 });
     const relative = createSpectrumSeriesData(data, zoomed.indices, "relative");
     expect(relative).toMatchObject([
-      { id: `peak-${limit}`, sourceIndex: limit, value: [43, 0.1], label: "weak" },
       { id: `peak-${limit + 1}`, sourceIndex: limit + 1, value: [43, 0.2], label: "duplicate" },
     ]);
-    expect(createSpectrumSeriesData(data, [limit + 1], "relative")[0]).toEqual(relative[1]);
+    expect(createSpectrumSeriesData(data, [limit + 1], "relative")[0]).toEqual(relative[0]);
     expect(createSpectrumSeriesData(data, zoomed.indices, "absolute")).toMatchObject([
-      { value: [43, 1], relativeIntensity: 0.1 },
       { value: [43, 2], relativeIntensity: 0.2 },
     ]);
     expect(data).toHaveLength(limit + 2);
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])("rejects invalid horizontal bin counts: %s", (binCount) => {
+    expect(() => selectSpectrumPeaks([], [0, 1], binCount)).toThrow("bin count");
   });
 
   it.each(["relative", "absolute"] as const)(
@@ -283,7 +321,6 @@ describe("mass spectrum chart", () => {
       {
         dimensions: ["mz", "int"],
         data: [
-          { value: [57, 250], mz: 57, int: 250, relativeIntensity: 25 },
           { value: [43, 1000], mz: 43, int: 1000, relativeIntensity: 100 },
           { value: [57, 500], mz: 57, int: 500, relativeIntensity: 50 },
         ],
@@ -302,11 +339,12 @@ describe("mass spectrum chart", () => {
     const sticks = [
       ...svg.matchAll(/<path d="M([\d.-]+) ([\d.-]+)L([\d.-]+) ([\d.-]+)"[^>]*stroke="#2563eb"/g),
     ];
-    expect(sticks).toHaveLength(3);
+    expect(sticks).toHaveLength(2);
+    const visiblePeaks = [input[1]!, input[2]!];
     for (const [index, stick] of sticks.entries()) {
       expect(Number(stick[2])).toBeCloseTo(chart.convertToPixel({ yAxisIndex: 0 }, 0), 1);
       expect(Number(stick[4])).toBe(
-        Number(chart.convertToPixel({ yAxisIndex: 0 }, input[index]!.int).toFixed(1)),
+        Number(chart.convertToPixel({ yAxisIndex: 0 }, visiblePeaks[index]!.int).toFixed(1)),
       );
     }
     expect(input[0]).toEqual({ mz: 57, int: 250 });
@@ -615,7 +653,8 @@ describe("mass spectrum chart", () => {
     const sticks = [
       ...svg.matchAll(/<path d="M[\d.-]+ [\d.-]+L[\d.-]+ [\d.-]+"[^>]*stroke="#2563eb"/g),
     ];
-    expect(sticks).toHaveLength(MAX_RENDERED_SPECTRUM_PEAKS);
+    expect(sticks).toHaveLength(selectSpectrumPeaks(peaks, [0, (count - 1) * 1.05]).indices.length);
+    expect(sticks.length).toBeLessThanOrEqual(MAX_RENDERED_SPECTRUM_PEAKS);
     expect(peaks).toHaveLength(count);
   });
 
@@ -728,7 +767,7 @@ describe("mass spectrum chart", () => {
     expect(chart.renderToSVGString()).toContain(">43</text>");
   });
 
-  it("preserves duplicate m/z rows and very small positive relative intensities", () => {
+  it("renders the strongest duplicate m/z and preserves very small positive intensities", () => {
     const peaks = [
       { mz: 46.04131623304093, int: 1 },
       { mz: 47.04467106811093, int: 1e-12 },
@@ -739,7 +778,6 @@ describe("mass spectrum chart", () => {
       {
         data: [
           { value: [peaks[0]!.mz, 100], tooltip: { trigger: "item" } },
-          { value: [peaks[1]!.mz, 1e-10], tooltip: { trigger: "item" } },
           { value: [peaks[2]!.mz, 50], tooltip: { trigger: "item" } },
         ],
       },

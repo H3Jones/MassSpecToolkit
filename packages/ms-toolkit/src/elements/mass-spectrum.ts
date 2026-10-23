@@ -19,6 +19,7 @@ import {
   createPreparedMassSpectrumChart,
   createSpectrumViewportUpdate,
   getSpectrumIntensityMode,
+  MAX_RENDERED_SPECTRUM_PEAKS,
   selectSpectrumPeaks,
   type SpectrumPeakSelection,
 } from "../charts/mass-spectrum.ts";
@@ -203,6 +204,7 @@ export class MsMassSpectrum extends HTMLElement {
         this.#resizeObserver = new ResizeObserver(() => {
           if (this.#container.clientWidth > 0) {
             this.#host?.resize({ width: this.#container.clientWidth });
+            this.#scheduleSelectionUpdate();
           }
         });
         this.#resizeObserver.observe(this.#container);
@@ -229,7 +231,7 @@ export class MsMassSpectrum extends HTMLElement {
     this.#container.setAttribute("aria-description", description);
     this.#status.className = "status";
     this.#status.textContent = reduced
-      ? `${showing} Only the most intense peaks are drawn; zoom in to reveal less intense peaks.`
+      ? `${showing} Only the strongest peak in each horizontal plot bin is drawn; zoom in to separate nearby peaks.`
       : visibleCount === 0
         ? "No peaks in this m/z range."
         : showing;
@@ -273,6 +275,10 @@ export class MsMassSpectrum extends HTMLElement {
     }
     this.#activePeak = -1;
     this.#announcement.textContent = "";
+    this.#scheduleSelectionUpdate();
+  }
+
+  #scheduleSelectionUpdate(): void {
     if (this.#selectionFrame === undefined && this.#zoomDomain && this.#host) {
       this.#selectionFrame = requestAnimationFrame(() => {
         this.#selectionFrame = undefined;
@@ -287,12 +293,20 @@ export class MsMassSpectrum extends HTMLElement {
 
   #updateSelection(): void {
     if (!this.#host || !this.#zoomDomain) return;
-    const selection = selectSpectrumPeaks(this.#data, this.#zoomDomain);
+    const startPixel = this.#host.convertToPixel({ xAxisIndex: 0 }, this.#zoomDomain[0]);
+    const endPixel = this.#host.convertToPixel({ xAxisIndex: 0 }, this.#zoomDomain[1]);
+    const pixelWidth = Math.abs(endPixel - startPixel);
+    const binCount = Number.isFinite(pixelWidth)
+      ? Math.max(1, Math.min(MAX_RENDERED_SPECTRUM_PEAKS, Math.floor(pixelWidth)))
+      : MAX_RENDERED_SPECTRUM_PEAKS;
+    const selection = selectSpectrumPeaks(this.#data, this.#zoomDomain, binCount);
     const sameIndices =
       selection.indices.length === this.#selection.indices.length &&
       selection.indices.every((index, position) => index === this.#selection.indices[position]);
     if (sameIndices && selection.visibleCount === this.#selection.visibleCount) return;
     this.#selection = selection;
+    this.#activePeak = -1;
+    this.#announcement.textContent = "";
     this.#host.dispatchAction({ type: "hideTip" });
     this.#host.setOption(
       {

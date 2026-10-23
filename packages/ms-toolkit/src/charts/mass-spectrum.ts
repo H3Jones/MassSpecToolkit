@@ -38,7 +38,7 @@ export interface RelativeSpectrumPeak extends SpectrumPeak {
 
 export type SpectrumIntensityMode = "relative" | "absolute";
 
-/** Shared per-viewport rendering budget, not a limit on stored measurements. */
+/** Maximum number of horizontal plot bins rendered in one viewport. */
 export const MAX_RENDERED_SPECTRUM_PEAKS = 1_000;
 
 export interface SpectrumPeakSelection {
@@ -142,63 +142,61 @@ function normalizeZoomDomain(
   return normalized;
 }
 
-function selectHighestN<T>(
-  candidates: Iterable<T>,
-  count: number,
-  compare: (left: T, right: T) => number,
-): T[] {
-  const selected: T[] = [];
-  for (const candidate of candidates) {
-    if (selected.length < count) {
-      selected.push(candidate);
-      let position = selected.length - 1;
-      while (position > 0) {
-        const parent = Math.floor((position - 1) / 2);
-        if (compare(selected[position]!, selected[parent]!) >= 0) break;
-        [selected[position], selected[parent]] = [selected[parent]!, selected[position]!];
-        position = parent;
-      }
-    } else if (count > 0 && compare(selected[0]!, candidate) < 0) {
-      selected[0] = candidate;
-      let position = 0;
-      while (position * 2 + 1 < selected.length) {
-        let child = position * 2 + 1;
-        if (child + 1 < selected.length && compare(selected[child + 1]!, selected[child]!) < 0) {
-          child++;
-        }
-        if (compare(selected[child]!, selected[position]!) >= 0) break;
-        [selected[position], selected[child]] = [selected[child]!, selected[position]!];
-        position = child;
-      }
-    }
+/**
+ * Selects the strongest visible peak in each horizontal bin; ties retain original row order.
+ */
+function selectHighestPerBin(
+  data: readonly SpectrumPeak[],
+  domain: readonly [number, number],
+  binCount: number,
+): SpectrumPeakSelection {
+  const horizontalBins = binCount;
+  const domainWidth = domain[1] - domain[0];
+  const strongest = new Int32Array(horizontalBins);
+  strongest.fill(-1);
+  let visibleCount = 0;
+
+  for (let index = 0; index < data.length; index++) {
+    const peak = data[index]!;
+    if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
+    visibleCount++;
+    const bin = Math.min(
+      horizontalBins - 1,
+      Math.floor(((peak.mz - domain[0]) / domainWidth) * horizontalBins),
+    );
+    const currentIndex = strongest[bin]!;
+    if (currentIndex === -1 || peak.int > data[currentIndex]!.int) strongest[bin] = index;
   }
-  return selected;
+
+  const indices = Array.from(strongest).filter((index) => index !== -1);
+  indices.sort((a, b) => a - b);
+  return { indices, visibleCount };
 }
 
-/** Selects the strongest visible peaks with a bounded heap; ties retain original row order. */
+/**
+ * Selects the strongest peak in each horizontal bin, retaining source order.
+ * `binCount` is the visible plot width in pixels and is capped at the rendering budget.
+ */
 export function selectSpectrumPeaks(
   data: readonly SpectrumPeak[],
   domain: readonly [number, number],
+  binCount = MAX_RENDERED_SPECTRUM_PEAKS,
 ): SpectrumPeakSelection {
-  let visibleCount = 0;
-  function* visibleIndices() {
-    for (let index = 0; index < data.length; index++) {
-      const peak = data[index]!;
-      if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
-      visibleCount++;
-      yield index;
-    }
+  if (
+    domain.length !== 2 ||
+    !Number.isFinite(domain[0]) ||
+    !Number.isFinite(domain[1]) ||
+    domain[1] <= domain[0]
+  ) {
+    throw new RangeError("Spectrum peak selection range must be finite and increasing.");
   }
-
-  const indices = selectHighestN(visibleIndices(), MAX_RENDERED_SPECTRUM_PEAKS, (left, right) => {
-    const leftIntensity = data[left]!.int;
-    const rightIntensity = data[right]!.int;
-    if (leftIntensity < rightIntensity) return -1;
-    if (leftIntensity > rightIntensity) return 1;
-    return right - left;
-  });
-  indices.sort((a, b) => a - b);
-  return { indices, visibleCount };
+  if (!Number.isInteger(binCount) || binCount < 1) {
+    throw new RangeError("Spectrum peak bin count must be a positive integer.");
+  }
+  if (!Number.isFinite(domain[1] - domain[0])) {
+    throw new RangeError("Spectrum peak selection range width must be finite.");
+  }
+  return selectHighestPerBin(data, domain, Math.min(binCount, MAX_RENDERED_SPECTRUM_PEAKS));
 }
 
 export function createSpectrumSeriesData(
