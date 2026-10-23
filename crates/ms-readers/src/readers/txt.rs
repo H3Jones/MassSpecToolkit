@@ -203,9 +203,9 @@ fn parse_peak(line: &str, line_number: usize, spec: &TxtFormat) -> Result<Peak, 
     })
 }
 
-const MZ_HEADERS: &[&str] = &["mz", "masstocharge", "m/z"];
-const INTENSITY_HEADERS: &[&str] = &["intensity", "intensities", "abundance", "relativeintensity", "relativeabundance"];
-const SIGNAL_TO_NOISE_HEADERS: &[&str] = &["sn", "snr", "signaltonoise", "signaltonoiseratio", "signalnoiseratio"];
+const MZ_HEADERS: &[&str] = &["mz", "m/z"];
+const INTENSITY_HEADERS: &[&str] = &["intensity", "i", "abundance"];
+const SIGNAL_TO_NOISE_HEADERS: &[&str] = &["sn", "snr"];
 
 fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtReadError> {
     let delimiters = [
@@ -365,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn guesses_all_delimiters_without_assuming_third_column_is_sn() {
+    fn guesses_and_reads_supported_layouts() {
         for (separator, delimiter) in [
             ("\t", TxtDelimiter::Character('\t')),
             (",", TxtDelimiter::Character(',')),
@@ -384,10 +384,6 @@ mod tests {
             assert_eq!(spectrum.peaks()[0].intensity(), 917_992.0);
             assert_eq!(spectrum.peaks()[0].signal_to_noise(), None);
         }
-    }
-
-    #[test]
-    fn guesses_two_columns_and_preserves_order_duplicates_and_scale() {
         let input = "2 2e6\n1 0\n2 500\n";
         let spec = guess_txt_format(input.as_bytes()).unwrap();
         let spectrum = read(input.as_bytes(), &spec).unwrap();
@@ -398,11 +394,7 @@ mod tests {
         );
         assert_eq!(spectrum.peaks()[0].intensity(), 2e6);
         assert_eq!(spectrum.peaks()[1].intensity(), 0.0);
-    }
-
-    #[test]
-    fn recognizes_reordered_headers_and_explicit_sn_names() {
-        for sn_header in ["S/N", "SNR", "signal-to-noise", "Signal to noise ratio"] {
+        for sn_header in ["S/N", "SNR"] {
             let input = format!(
                 "\u{feff}# export\r\n\r\nIntensity\tWidth\tm/z\t{sn_header}\r\n20\ttext\t2\t10\r\n"
             );
@@ -417,14 +409,12 @@ mod tests {
                 Peak::new(2.0, 20.0, Some(10.0)).unwrap()
             );
         }
-    }
-
-    #[test]
-    fn recognizes_headers_without_sn_and_ignores_unknown_columns() {
         for header in [
             "m/z,intensity,width",
-            "M_Z,Relative Intensity,resolution",
-            "Mass-to-charge,Abundance,label",
+            "M_Z,Abundance,resolution",
+            "m/z,I,label",
+            "m/z,intensity,signal-to-noise",
+            "m/z,intensity,Signal to noise ratio",
         ] {
             let input = format!("{header}\n1,20,unknown\n");
             let spec = guess_txt_format(input.as_bytes()).unwrap();
@@ -434,8 +424,8 @@ mod tests {
     }
 
     #[test]
-    fn accepts_manual_specs_and_skips_preamble_without_guessing() {
-        let spec = TxtFormat {
+    fn reads_explicit_layouts_and_ignores_nondata_lines() {
+        let manual = TxtFormat {
             delimiter: TxtDelimiter::Character(':'),
             skip_lines: 2,
             column_count: 4,
@@ -445,17 +435,13 @@ mod tests {
         };
         let spectrum = read(
             "arbitrary metadata\nnot a recognized header\n20:label:2:10\n".as_bytes(),
-            &spec,
+            &manual,
         )
         .unwrap();
         assert_eq!(
             spectrum.peaks()[0],
             Peak::new(2.0, 20.0, Some(10.0)).unwrap()
         );
-    }
-
-    #[test]
-    fn accepts_bom_blank_lines_and_comments_with_physical_line_numbers() {
         let input = "\u{feff}\n # comment\n2 20\n\n# another comment\n1 10\n";
         let guessed = guess_txt_format(input.as_bytes()).unwrap();
         assert_eq!(guessed.skip_lines, 2);
@@ -477,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_specs_even_with_empty_input() {
+    fn rejects_invalid_specs_and_peak_data() {
         for invalid in [
             TxtFormat {
                 column_count: 0,
@@ -509,16 +495,12 @@ mod tests {
                 Err(TxtReadError::InvalidSpec(_))
             ));
         }
-    }
-
-    #[test]
-    fn rejects_missing_extra_and_empty_mapped_columns() {
-        let spec = TxtFormat {
+        let csv_spec = TxtFormat {
             delimiter: TxtDelimiter::Character(','),
             ..spec()
         };
         for (input, actual) in [("1\n", 1), ("1,2,3\n", 3)] {
-            let error = read(input.as_bytes(), &spec).unwrap_err();
+            let error = read(input.as_bytes(), &csv_spec).unwrap_err();
             assert!(matches!(
                 error,
                 TxtReadError::InvalidColumnCount { line: 1, expected: 2, actual: count } if count == actual
@@ -526,14 +508,10 @@ mod tests {
         }
         for (input, column) in [(",2\n", 1), ("1,\n", 2)] {
             assert!(matches!(
-                read(input.as_bytes(), &spec),
+                read(input.as_bytes(), &csv_spec),
                 Err(TxtReadError::InvalidNumber { line: 1, column: actual, .. }) if actual == column
             ));
         }
-    }
-
-    #[test]
-    fn validates_peak_values_and_optional_sn() {
         for (input, source) in [
             ("0 2", SpectrumError::InvalidMz),
             ("NaN 2", SpectrumError::InvalidMz),
@@ -562,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_previews_unsupported_and_ambiguous_headers() {
+    fn validates_previews_and_propagates_io_errors() {
         for input in ["", "\n# comment\n", "m/z,intensity\n"] {
             assert!(matches!(
                 guess_txt_format(input.as_bytes()),
@@ -574,7 +552,9 @@ mod tests {
             "mass,width\n1,2\n",
             "m/z,mz,intensity\n1,2,3\n",
             "m/z,intensity,S/N,SNR\n1,2,3,4\n",
-            "m/z\tintensity\tSignal to noise\tSignal to noise ratio\n1\t2\t3\t4\n",
+            "m/z\tintensity\tS/N\tSNR\n1\t2\t3\t4\n",
+            "Mass-to-charge,Abundance,label\n1,20,unknown\n",
+            "M_Z,Relative Intensity,resolution\n1,20,unknown\n",
             "bad 20\n1 2\n",
         ] {
             assert!(matches!(
@@ -582,10 +562,6 @@ mod tests {
                 Err(TxtReadError::UnrecognizedFormat { line: 1 })
             ));
         }
-    }
-
-    #[test]
-    fn validates_every_sampled_row_without_skipping_bad_data() {
         assert!(matches!(
             guess_txt_format("1,20\n2,bad\n".as_bytes()),
             Err(TxtReadError::InvalidNumber {
@@ -602,16 +578,12 @@ mod tests {
                 actual: 3
             })
         ));
-    }
-
-    #[test]
-    fn bounds_preview_but_full_reader_checks_remaining_rows() {
         let input = format!("{}bad row\n", "1 20\n".repeat(PREVIEW_LINES));
         let mut preview = input.as_bytes();
-        let spec = guess_txt_format(&mut preview).unwrap();
+        let guessed = guess_txt_format(&mut preview).unwrap();
         assert_eq!(preview, b"bad row\n");
         assert!(matches!(
-            read(input.as_bytes(), &spec),
+            read(input.as_bytes(), &guessed),
             Err(TxtReadError::InvalidNumber {
                 line: 33,
                 column: 1,
@@ -623,10 +595,6 @@ mod tests {
             guess_txt_format(input.as_bytes()),
             Err(TxtReadError::NoSampleData)
         ));
-    }
-
-    #[test]
-    fn empty_full_input_is_valid_and_io_errors_are_not_hidden() {
         assert!(read("".as_bytes(), &spec()).unwrap().peaks().is_empty());
         let failing_input = || BufReader::new(FailingRead);
         for error in [
