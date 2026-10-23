@@ -38,6 +38,14 @@ export interface RelativeSpectrumPeak extends SpectrumPeak {
 
 export type SpectrumIntensityMode = "relative" | "absolute";
 
+/** Shared per-viewport rendering budget, not a limit on stored measurements. */
+export const MAX_RENDERED_SPECTRUM_PEAKS = 1_000;
+
+export interface SpectrumPeakSelection {
+  indices: number[];
+  visibleCount: number;
+}
+
 export interface MassSpectrumOptions {
   color?: string;
   textColor?: string;
@@ -134,16 +142,103 @@ function normalizeZoomDomain(
   return normalized;
 }
 
-/** NIST-inspired stick spectrum with one baseline-to-peak segment per row. */
+/** Selects the strongest visible peaks with a bounded heap; ties retain original row order. */
+export function selectSpectrumPeaks(
+  data: readonly SpectrumPeak[],
+  domain: readonly [number, number],
+): SpectrumPeakSelection {
+  const indices: number[] = [];
+  let visibleCount = 0;
+  const weaker = (a: number, b: number) =>
+    data[a]!.int < data[b]!.int || (data[a]!.int === data[b]!.int && a > b);
+
+  for (let index = 0; index < data.length; index++) {
+    const peak = data[index]!;
+    if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
+    visibleCount++;
+    if (indices.length < MAX_RENDERED_SPECTRUM_PEAKS) {
+      indices.push(index);
+      let position = indices.length - 1;
+      while (position > 0) {
+        const parent = Math.floor((position - 1) / 2);
+        if (!weaker(indices[position]!, indices[parent]!)) break;
+        [indices[position], indices[parent]] = [indices[parent]!, indices[position]!];
+        position = parent;
+      }
+    } else if (weaker(indices[0]!, index)) {
+      indices[0] = index;
+      let position = 0;
+      while (position * 2 + 1 < indices.length) {
+        let child = position * 2 + 1;
+        if (child + 1 < indices.length && weaker(indices[child + 1]!, indices[child]!)) child++;
+        if (!weaker(indices[child]!, indices[position]!)) break;
+        [indices[position], indices[child]] = [indices[child]!, indices[position]!];
+        position = child;
+      }
+    }
+  }
+  indices.sort((a, b) => a - b);
+  return { indices, visibleCount };
+}
+
+export function createSpectrumSeriesData(
+  data: readonly RelativeSpectrumPeak[],
+  indices: readonly number[],
+  intensityMode: SpectrumIntensityMode,
+) {
+  return indices.map((sourceIndex) => {
+    const peak = data[sourceIndex]!;
+    return {
+      id: `peak-${sourceIndex}`,
+      sourceIndex,
+      value: [peak.mz, intensityMode === "relative" ? peak.relativeIntensity : peak.int],
+      ...peak,
+      tooltip: { trigger: "item" as const },
+    };
+  });
+}
+
+export function createSpectrumViewportUpdate(
+  data: readonly RelativeSpectrumPeak[],
+  indices: readonly number[],
+  intensityMode: SpectrumIntensityMode,
+  domain: readonly [number, number],
+): MassSpectrumChartOption {
+  return {
+    // ECharts otherwise reapplies the original zoom extent when series data is replaced.
+    dataZoom: ["mz-inside", "mz-slider"].map((id) => ({
+      id,
+      startValue: domain[0],
+      endValue: domain[1],
+    })),
+    series: [{ id: "peaks", data: createSpectrumSeriesData(data, indices, intensityMode) }],
+  };
+}
+
+/**
+ * Budgeted initial viewport options. Without the spectrum element, rebuild with
+ * the current zoomDomain after zoom/pan to reveal peaks omitted from the overview.
+ */
 export function createMassSpectrumChart(
   peaks: readonly SpectrumPeak[],
   options: MassSpectrumOptions = {},
 ): MassSpectrumChartOption {
-  const data = normalizeSpectrumPeaks(peaks);
+  return createPreparedMassSpectrumChart(normalizeSpectrumPeaks(peaks), options).option;
+}
+
+/** Reuses validated, normalized peaks so zoom updates never copy the full dataset. */
+export function createPreparedMassSpectrumChart(
+  data: readonly RelativeSpectrumPeak[],
+  options: MassSpectrumOptions = {},
+) {
   const intensityMode = getSpectrumIntensityMode(options.intensityMode);
   const relative = intensityMode === "relative";
   let maximumIntensity = 0;
-  for (const peak of data) maximumIntensity = Math.max(maximumIntensity, peak.int);
+  let minimumIntensity = data.length ? Infinity : 0;
+  for (const peak of data) {
+    maximumIntensity = Math.max(maximumIntensity, peak.int);
+    minimumIntensity = Math.min(minimumIntensity, peak.int);
+  }
   const absoluteSplitNumber = 5;
   // ECharts rounds ticks to 20 decimal places. Pin bounds outside its safe rounding range.
   const fixedAbsoluteMaximum =
@@ -166,6 +261,7 @@ export function createMassSpectrumChart(
     throw new RangeError("Spectrum m/z range must have finite, increasing, non-negative bounds.");
   }
   const zoomDomain = normalizeZoomDomain(options.zoomDomain ?? mzDomain, mzDomain);
+  const selection = selectSpectrumPeaks(data, zoomDomain);
   const zoom = {
     xAxisIndex: 0,
     filterMode: "none" as const,
@@ -175,7 +271,7 @@ export function createMassSpectrumChart(
     minValueSpan: (mzDomain[1] - mzDomain[0]) / 1_000_000,
   };
 
-  return {
+  const option: MassSpectrumChartOption = {
     animation: false,
     aria: { enabled: true },
     grid: { left: 75, right: 25, top: 45, bottom: 90 },
@@ -231,12 +327,7 @@ export function createMassSpectrumChart(
         clip: true,
         dimensions: ["mz", relative ? "relativeIntensity" : "int"],
         encode: { x: 0, y: 1, tooltip: [0, 1] },
-        data: data.map((peak) => ({
-          value: [peak.mz, relative ? peak.relativeIntensity : peak.int],
-          ...peak,
-          // Direct/keyboard inspection must distinguish peaks with identical m/z.
-          tooltip: { trigger: "item" },
-        })),
+        data: createSpectrumSeriesData(data, selection.indices, intensityMode),
         renderItem: (_params, api) => {
           const mz = Number(api.value(0));
           const baseline = api.coord([mz, 0]);
@@ -271,16 +362,39 @@ export function createMassSpectrumChart(
           };
         },
       },
+      // Preserve native absolute-axis nice ticks from the full dataset, even in an empty viewport.
+      ...(relative
+        ? []
+        : [
+            {
+              id: "intensity-extent",
+              type: "custom" as const,
+              coordinateSystem: "cartesian2d" as const,
+              silent: true,
+              dimensions: ["mz", "int"],
+              encode: { x: 0, y: 1 },
+              data: [
+                [mzDomain[0], minimumIntensity],
+                [mzDomain[0], maximumIntensity],
+              ],
+              tooltip: { show: false, trigger: "none" as const },
+              renderItem: () => null,
+            },
+          ]),
     ],
     tooltip: {
       trigger: "axis",
       confine: true,
       formatter: (params) => {
         const point = Array.isArray(params) ? params[0] : params;
-        const peak = point && data[point.dataIndex];
+        const item = point?.data;
+        const sourceIndex =
+          item && typeof item === "object" && "sourceIndex" in item ? item.sourceIndex : undefined;
+        const peak = typeof sourceIndex === "number" ? data[sourceIndex] : undefined;
         if (!peak) throw new RangeError("Spectrum tooltip peak is out of range.");
         return createSpectrumTooltip(peak, xLabel, intensityMode);
       },
     },
   };
+  return { option, selection, mzDomain };
 }

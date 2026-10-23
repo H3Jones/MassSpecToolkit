@@ -9,12 +9,19 @@ import {
 } from "echarts/components";
 import { SVGRenderer } from "echarts/renderers";
 import {
-  createMassSpectrumChart,
   copySpectrumPeaks,
   normalizeSpectrumPeaks,
+  type RelativeSpectrumPeak,
   type SpectrumPeak,
+  type SpectrumIntensityMode,
 } from "../charts/index.ts";
-import { getAutomaticMzDomain, getSpectrumIntensityMode } from "../charts/mass-spectrum.ts";
+import {
+  createPreparedMassSpectrumChart,
+  createSpectrumViewportUpdate,
+  getSpectrumIntensityMode,
+  selectSpectrumPeaks,
+  type SpectrumPeakSelection,
+} from "../charts/mass-spectrum.ts";
 import { createSpectrumTooltip } from "../charts/spectrum-tooltip.ts";
 
 use([
@@ -35,7 +42,7 @@ template.innerHTML = `
     [hidden] { display: none !important; }
     .chart-frame { position: relative; min-width: 0; }
     .chart { min-width: 0; }
-    .status { margin: 0.5rem 0; }
+    .status { margin: 0.5rem 0; text-align: center; }
     .error { color: #b91c1c; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   </style>
@@ -51,6 +58,7 @@ template.innerHTML = `
  * `<ms-mass-spectrum chart-title="Mass spectrum" height="360">`
  * Assign centroid peaks to `data`. The default intensity-mode="relative" uses a
  * 100% base peak; intensity-mode="absolute" displays original intensity values.
+ * Only the strongest visible peaks are rendered; the full dataset is retained.
  * Rendering errors dispatch `ms-error` (detail: Error).
  */
 export class MsMassSpectrum extends HTMLElement {
@@ -65,7 +73,7 @@ export class MsMassSpectrum extends HTMLElement {
     "intensity-mode",
   ];
 
-  #data: readonly SpectrumPeak[] = [];
+  #data: readonly RelativeSpectrumPeak[] = [];
   #host?: EChartsType;
   #resizeObserver?: ResizeObserver;
   #container!: HTMLElement;
@@ -76,14 +84,18 @@ export class MsMassSpectrum extends HTMLElement {
   #activePeak = -1;
   #zoomDomain?: readonly [number, number];
   #defaultMzDomain?: readonly [number, number];
+  #selection: SpectrumPeakSelection = { indices: [], visibleCount: 0 };
+  #intensityMode: SpectrumIntensityMode = "relative";
+  #chartTitle = "";
+  #selectionFrame?: number;
 
   get data(): readonly SpectrumPeak[] {
-    return this.#data.map((peak) => ({ ...peak }));
+    return copySpectrumPeaks(this.#data);
   }
 
   /** Invalid data throws before replacing the current spectrum. */
   set data(peaks: readonly SpectrumPeak[]) {
-    this.#data = copySpectrumPeaks(peaks);
+    this.#data = normalizeSpectrumPeaks(peaks);
     this.#zoomDomain = undefined;
     this.#activePeak = -1;
     if (this.isConnected && this.shadowRoot) this.#render();
@@ -133,6 +145,7 @@ export class MsMassSpectrum extends HTMLElement {
           .trim()
       : fallbackTitle;
     this.#title.hidden = !title;
+    this.#chartTitle = title || "Mass spectrum";
 
     try {
       const heightAttribute = this.getAttribute("height");
@@ -156,7 +169,7 @@ export class MsMassSpectrum extends HTMLElement {
       const intensityMode = getSpectrumIntensityMode(
         this.getAttribute("intensity-mode") ?? undefined,
       );
-      const definition = createMassSpectrumChart(this.#data, {
+      const prepared = createPreparedMassSpectrumChart(this.#data, {
         color: this.getAttribute("color") ?? getComputedStyle(this).color,
         textColor: getComputedStyle(this).color,
         intensityMode,
@@ -165,6 +178,9 @@ export class MsMassSpectrum extends HTMLElement {
         zoomDomain: this.#zoomDomain,
         xLabel: this.getAttribute("x-label") ?? undefined,
       });
+      const definition = prepared.option;
+      this.#selection = prepared.selection;
+      this.#intensityMode = intensityMode;
       if (this.#data.length === 0) {
         this.#dispose();
         this.#defaultMzDomain = undefined;
@@ -173,20 +189,9 @@ export class MsMassSpectrum extends HTMLElement {
         this.#status.hidden = false;
         return;
       }
-      const defaultMzDomain = mzDomain ?? getAutomaticMzDomain(this.#data);
-      this.#defaultMzDomain = defaultMzDomain;
+      this.#defaultMzDomain = prepared.mzDomain;
       this.#container.style.height = `${height}px`;
-      this.#container.setAttribute("aria-label", title || "Mass spectrum");
-      const intensityDescription =
-        intensityMode === "absolute"
-          ? "Absolute intensities in the original input units."
-          : "Intensities normalized to the base peak at 100%.";
-      const description = `${this.#data.length} peaks. ${intensityDescription} Use the mouse wheel or pinch to zoom, the area zoom tool to select an m/z section, drag or the range slider to pan, plus and minus to zoom, Home to reset, and arrow keys to inspect peaks.`;
-      this.#container.setAttribute("aria-description", description);
-      definition.aria = {
-        enabled: true,
-        label: { description: `${title || "Mass spectrum"}. ${description}` },
-      };
+      definition.aria = this.#updatePresentation();
       if (!this.#host) {
         this.#host = init(this.#container, undefined, {
           renderer: "svg",
@@ -204,20 +209,47 @@ export class MsMassSpectrum extends HTMLElement {
       this.#host.setOption(definition, { notMerge: true });
       this.#host.resize({ width: this.#container.clientWidth || 640, height });
       this.#syncZoom();
-      this.#status.hidden = true;
     } catch (error) {
-      this.#dispose();
-      this.#container.replaceChildren();
-      this.#defaultMzDomain = undefined;
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.#status.className = "status error";
-      this.#status.textContent = err.message;
-      this.#status.hidden = false;
-      this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
+      this.#showError(error);
     }
   }
 
+  #updatePresentation() {
+    const { indices, visibleCount } = this.#selection;
+    const showing = `Showing ${indices.length.toLocaleString()} of ${visibleCount.toLocaleString()} peaks in the current m/z range.`;
+    const reduced = indices.length < visibleCount;
+    const intensityDescription =
+      this.#intensityMode === "absolute"
+        ? "Absolute intensities in the original input units."
+        : "Intensities normalized to the dataset's base peak at 100%.";
+    const description = `${this.#data.length} peaks. ${showing} ${intensityDescription} Use the mouse wheel or pinch to zoom, the area zoom tool to select an m/z section, drag or the range slider to pan, plus and minus to zoom, Home to reset, and arrow keys to inspect displayed peaks.`;
+    const label = `${this.#chartTitle}. ${description}`;
+    this.#container.setAttribute("aria-label", label);
+    this.#container.setAttribute("aria-description", description);
+    this.#status.className = "status";
+    this.#status.textContent = reduced
+      ? `${showing} Only the most intense peaks are drawn; zoom in to reveal less intense peaks.`
+      : visibleCount === 0
+        ? "No peaks in this m/z range."
+        : showing;
+    this.#status.hidden = !reduced && visibleCount > 0;
+    return { enabled: true, label: { description: label } };
+  }
+
+  #showError(error: unknown): void {
+    this.#dispose();
+    this.#container.replaceChildren();
+    this.#defaultMzDomain = undefined;
+    const err = error instanceof Error ? error : new Error(String(error));
+    this.#status.className = "status error";
+    this.#status.textContent = err.message;
+    this.#status.hidden = false;
+    this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
+  }
+
   #dispose(): void {
+    if (this.#selectionFrame !== undefined) cancelAnimationFrame(this.#selectionFrame);
+    this.#selectionFrame = undefined;
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = undefined;
     this.#host?.dispose();
@@ -240,6 +272,39 @@ export class MsMassSpectrum extends HTMLElement {
     }
     this.#activePeak = -1;
     this.#announcement.textContent = "";
+    if (this.#selectionFrame === undefined && this.#zoomDomain && this.#host) {
+      this.#selectionFrame = requestAnimationFrame(() => {
+        this.#selectionFrame = undefined;
+        try {
+          this.#updateSelection();
+        } catch (error) {
+          this.#showError(error);
+        }
+      });
+    }
+  }
+
+  #updateSelection(): void {
+    if (!this.#host || !this.#zoomDomain) return;
+    const selection = selectSpectrumPeaks(this.#data, this.#zoomDomain);
+    const sameIndices =
+      selection.indices.length === this.#selection.indices.length &&
+      selection.indices.every((index, position) => index === this.#selection.indices[position]);
+    if (sameIndices && selection.visibleCount === this.#selection.visibleCount) return;
+    this.#selection = selection;
+    this.#host.dispatchAction({ type: "hideTip" });
+    this.#host.setOption(
+      {
+        ...createSpectrumViewportUpdate(
+          this.#data,
+          selection.indices,
+          this.#intensityMode,
+          this.#zoomDomain,
+        ),
+        aria: this.#updatePresentation(),
+      },
+      { silent: true },
+    );
   }
 
   #setZoom(domain?: readonly [number, number]): void {
@@ -255,10 +320,17 @@ export class MsMassSpectrum extends HTMLElement {
     } else if (event.key === "Home") {
       this.#setZoom(this.#defaultMzDomain);
     } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
-      const domain = this.#zoomDomain ?? this.#defaultMzDomain;
-      const visible = this.#data.flatMap((peak, index) =>
-        peak.mz >= domain[0] && peak.mz <= domain[1] ? [index] : [],
-      );
+      if (this.#selectionFrame !== undefined) {
+        cancelAnimationFrame(this.#selectionFrame);
+        this.#selectionFrame = undefined;
+        try {
+          this.#updateSelection();
+        } catch (error) {
+          this.#showError(error);
+          return;
+        }
+      }
+      const visible = this.#selection.indices;
       if (!visible.length) return;
       const direction = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : 1;
       const position = visible.indexOf(this.#activePeak);
@@ -269,8 +341,8 @@ export class MsMassSpectrum extends HTMLElement {
             : visible.length - 1
           : (position + direction + visible.length) % visible.length;
       this.#activePeak = visible[nextPosition]!;
-      this.#host.dispatchAction({ type: "showTip", seriesIndex: 0, dataIndex: this.#activePeak });
-      const peak = normalizeSpectrumPeaks(this.#data)[this.#activePeak]!;
+      this.#host.dispatchAction({ type: "showTip", seriesIndex: 0, dataIndex: nextPosition });
+      const peak = this.#data[this.#activePeak]!;
       this.#announcement.textContent = createSpectrumTooltip(
         peak,
         this.getAttribute("x-label") ?? "m/z",

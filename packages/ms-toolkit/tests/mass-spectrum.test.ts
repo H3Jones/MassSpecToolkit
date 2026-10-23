@@ -6,6 +6,12 @@ import {
   normalizeSpectrumPeaks,
   type MassSpectrumChartOption,
 } from "../src/charts/index.ts";
+import {
+  MAX_RENDERED_SPECTRUM_PEAKS,
+  createSpectrumSeriesData,
+  createSpectrumViewportUpdate,
+  selectSpectrumPeaks,
+} from "../src/charts/mass-spectrum.ts";
 
 const charts: EChartsType[] = [];
 afterEach(() => {
@@ -94,6 +100,119 @@ describe("spectrum normalization", () => {
   });
 });
 
+describe("viewport peak selection", () => {
+  const limit = MAX_RENDERED_SPECTRUM_PEAKS;
+
+  it.each([0, limit - 1, limit, limit + 1])("enforces the budget for %s visible peaks", (count) => {
+    const peaks = Object.freeze(
+      Array.from({ length: count }, (_, index) => Object.freeze({ mz: index, int: index })),
+    );
+    const selection = selectSpectrumPeaks(peaks, [0, count]);
+    expect(selection.visibleCount).toBe(count);
+    expect(selection.indices).toEqual(
+      Array.from(
+        { length: Math.min(count, limit) },
+        (_, index) => Math.max(0, count - limit) + index,
+      ),
+    );
+  });
+
+  it("matches a full-sort oracle for unsorted peaks, ties, zeros, and extreme intensities", () => {
+    const peaks = Array.from({ length: limit * 3 }, (_, index) => ({
+      mz: (index * 7919) % (limit * 3),
+      int: index % 97 === 0 ? Number.MAX_VALUE : (index * 1543) % 137,
+    }));
+    const domain = [limit / 2, limit * 2] as const;
+    const candidates = peaks
+      .map((peak, index) => ({ ...peak, index }))
+      .filter((peak) => peak.mz >= domain[0] && peak.mz <= domain[1]);
+    const expected = candidates
+      .slice()
+      .sort((a, b) => b.int - a.int || a.index - b.index)
+      .slice(0, limit)
+      .map((peak) => peak.index)
+      .sort((a, b) => a - b);
+    expect(selectSpectrumPeaks(peaks, domain)).toEqual({
+      indices: expected,
+      visibleCount: candidates.length,
+    });
+  });
+
+  it("retains the first rows for equal or zero intensities without combining duplicate m/z", () => {
+    const peaks = Array.from({ length: limit + 10 }, () => ({ mz: 43, int: 0 }));
+    expect(selectSpectrumPeaks(peaks, [43, 44])).toEqual({
+      indices: Array.from({ length: limit }, (_, index) => index),
+      visibleCount: peaks.length,
+    });
+  });
+
+  it("includes both viewport boundaries and preserves original order", () => {
+    const peaks = [
+      { mz: 2, int: 1 },
+      { mz: 1, int: 2 },
+      { mz: 1, int: 3 },
+      { mz: 3, int: 4 },
+    ];
+    expect(selectSpectrumPeaks(peaks, [1, 2])).toEqual({ indices: [0, 1, 2], visibleCount: 3 });
+    expect(selectSpectrumPeaks(peaks, [4, 5])).toEqual({ indices: [], visibleCount: 0 });
+  });
+
+  it("reveals weak peaks on zoom without changing dataset-wide normalization or identities", () => {
+    const data = normalizeSpectrumPeaks([
+      ...Array.from({ length: limit }, (_, index) => ({ mz: index / limit, int: 1000 })),
+      { mz: 43, int: 1, label: "weak" },
+      { mz: 43, int: 2, label: "duplicate" },
+    ]);
+    expect(selectSpectrumPeaks(data, [0, 50]).indices).not.toContain(limit);
+    const zoomed = selectSpectrumPeaks(data, [42, 44]);
+    expect(zoomed).toEqual({ indices: [limit, limit + 1], visibleCount: 2 });
+    const relative = createSpectrumSeriesData(data, zoomed.indices, "relative");
+    expect(relative).toMatchObject([
+      { id: `peak-${limit}`, sourceIndex: limit, value: [43, 0.1], label: "weak" },
+      { id: `peak-${limit + 1}`, sourceIndex: limit + 1, value: [43, 0.2], label: "duplicate" },
+    ]);
+    expect(createSpectrumSeriesData(data, [limit + 1], "relative")[0]).toEqual(relative[1]);
+    expect(createSpectrumSeriesData(data, zoomed.indices, "absolute")).toMatchObject([
+      { value: [43, 1], relativeIntensity: 0.1 },
+      { value: [43, 2], relativeIntensity: 0.2 },
+    ]);
+    expect(data).toHaveLength(limit + 2);
+  });
+
+  it.each(["relative", "absolute"] as const)(
+    "preserves native zoom geometry and %s scaling during viewport series updates",
+    (intensityMode) => {
+      const data = normalizeSpectrumPeaks([
+        ...Array.from({ length: limit }, (_, index) => ({ mz: index / limit, int: 1000 })),
+        { mz: 43, int: 1 },
+        { mz: 44, int: 2 },
+      ]);
+      const chart = render(createMassSpectrumChart(data, { intensityMode }));
+      const top = chart.convertFromPixel({ yAxisIndex: 0 }, 45);
+      for (const domain of [
+        [42, 45],
+        [20, 30],
+        [0, 46.2],
+      ] as const) {
+        chart.dispatchAction({ type: "dataZoom", startValue: domain[0], endValue: domain[1] });
+        const coordinates = domain.map((value) => chart.convertToPixel({ xAxisIndex: 0 }, value));
+        const selection = selectSpectrumPeaks(data, domain);
+        chart.setOption(
+          createSpectrumViewportUpdate(data, selection.indices, intensityMode, domain),
+        );
+        expect(domain.map((value) => chart.convertToPixel({ xAxisIndex: 0 }, value))).toEqual(
+          coordinates,
+        );
+        expect(chart.convertFromPixel({ yAxisIndex: 0 }, 45)).toBe(top);
+        expect(chart.getOption().dataZoom).toMatchObject([
+          { startValue: domain[0], endValue: domain[1] },
+          { startValue: domain[0], endValue: domain[1] },
+        ]);
+      }
+    },
+  );
+});
+
 describe("mass spectrum chart", () => {
   const peaks = [
     { mz: 43, int: 1000 },
@@ -162,6 +281,13 @@ describe("mass spectrum chart", () => {
           { value: [57, 500], mz: 57, int: 500, relativeIntensity: 50 },
         ],
       },
+      {
+        id: "intensity-extent",
+        data: [
+          [0, 250],
+          [0, 1000],
+        ],
+      },
     ]);
     const chart = render(option);
     const svg = chart.renderToSVGString();
@@ -204,6 +330,13 @@ describe("mass spectrum chart", () => {
     }
     expect(chart.getOption().series).toMatchObject([
       { data: [{ value: [202.85354, 917_992] }, { value: [204.55546, 1_842_229] }] },
+      {
+        id: "intensity-extent",
+        data: [
+          [0, 917_992],
+          [0, 1_842_229],
+        ],
+      },
     ]);
   });
 
@@ -243,12 +376,17 @@ describe("mass spectrum chart", () => {
       { startValue: 50, endValue: 58 },
     ]);
     expect(chart.getOption().series).toMatchObject([
-      { data: [{ value: [43, 1000] }, { value: [57, 250] }] },
+      { data: [{ value: [57, 250] }] },
+      {
+        id: "intensity-extent",
+        data: [
+          [0, 250],
+          [0, 1000],
+        ],
+      },
     ]);
     chart.setOption(createMassSpectrumChart(peaks, { zoomDomain: [50, 58] }), { notMerge: true });
-    expect(chart.getOption().series).toMatchObject([
-      { data: [{ value: [43, 100] }, { value: [57, 25] }] },
-    ]);
+    expect(chart.getOption().series).toMatchObject([{ data: [{ value: [57, 25] }] }]);
   });
 
   it.each(["", "counts", null, 1])("rejects unsupported intensity modes: %j", (intensityMode) => {
@@ -369,10 +507,40 @@ describe("mass spectrum chart", () => {
   it("supports a focused m/z viewport without renormalizing its peaks", () => {
     const chart = createMassSpectrumChart(peaks, { mzDomain: [50, 60] });
     expect(chart.xAxis).toMatchObject({ min: 50, max: 60 });
-    expect(render(chart).getOption().series).toMatchObject([
-      { data: [{ value: [43, 100] }, { value: [57, 25] }] },
-    ]);
+    expect(render(chart).getOption().series).toMatchObject([{ data: [{ value: [57, 25] }] }]);
   });
+
+  it("renders at most the peak budget and keeps the complete m/z extent", () => {
+    const count = MAX_RENDERED_SPECTRUM_PEAKS + 50;
+    const peaks = Array.from({ length: count }, (_, index) => ({ mz: index, int: index + 1 }));
+    const option = createMassSpectrumChart(peaks, { labels: false, color: "#2563eb" });
+    expect(option.xAxis).toMatchObject({ min: 0, max: (count - 1) * 1.05 });
+    const svg = render(option).renderToSVGString();
+    const sticks = [
+      ...svg.matchAll(/<path d="M[\d.-]+ [\d.-]+L[\d.-]+ [\d.-]+"[^>]*stroke="#2563eb"/g),
+    ];
+    expect(sticks).toHaveLength(MAX_RENDERED_SPECTRUM_PEAKS);
+    expect(peaks).toHaveLength(count);
+  });
+
+  it.each([
+    [50, 58],
+    [30, 40],
+  ])(
+    "keeps the full-dataset absolute scale in a weak or empty viewport [%s, %s]",
+    (minimum, maximum) => {
+      const option = createMassSpectrumChart(
+        [
+          { mz: 43, int: 1_842_229 },
+          { mz: 57, int: 917_992 },
+        ],
+        { intensityMode: "absolute", zoomDomain: [minimum, maximum] },
+      );
+      const chart = render(option);
+      expect(chart.convertFromPixel({ yAxisIndex: 0 }, 45)).toBe(2_100_000);
+      expect(chart.renderToSVGString()).not.toMatch(/NaN|Infinity/);
+    },
+  );
 
   it("supports a zoomed viewport within the default m/z range", () => {
     const chart = createMassSpectrumChart(peaks, {
