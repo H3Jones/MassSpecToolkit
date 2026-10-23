@@ -142,41 +142,61 @@ function normalizeZoomDomain(
   return normalized;
 }
 
+function selectHighestN<T>(
+  candidates: Iterable<T>,
+  count: number,
+  compare: (left: T, right: T) => number,
+): T[] {
+  const selected: T[] = [];
+  for (const candidate of candidates) {
+    if (selected.length < count) {
+      selected.push(candidate);
+      let position = selected.length - 1;
+      while (position > 0) {
+        const parent = Math.floor((position - 1) / 2);
+        if (compare(selected[position]!, selected[parent]!) >= 0) break;
+        [selected[position], selected[parent]] = [selected[parent]!, selected[position]!];
+        position = parent;
+      }
+    } else if (count > 0 && compare(selected[0]!, candidate) < 0) {
+      selected[0] = candidate;
+      let position = 0;
+      while (position * 2 + 1 < selected.length) {
+        let child = position * 2 + 1;
+        if (child + 1 < selected.length && compare(selected[child + 1]!, selected[child]!) < 0) {
+          child++;
+        }
+        if (compare(selected[child]!, selected[position]!) >= 0) break;
+        [selected[position], selected[child]] = [selected[child]!, selected[position]!];
+        position = child;
+      }
+    }
+  }
+  return selected;
+}
+
 /** Selects the strongest visible peaks with a bounded heap; ties retain original row order. */
 export function selectSpectrumPeaks(
   data: readonly SpectrumPeak[],
   domain: readonly [number, number],
 ): SpectrumPeakSelection {
-  const indices: number[] = [];
   let visibleCount = 0;
-  const weaker = (a: number, b: number) =>
-    data[a]!.int < data[b]!.int || (data[a]!.int === data[b]!.int && a > b);
-
-  for (let index = 0; index < data.length; index++) {
-    const peak = data[index]!;
-    if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
-    visibleCount++;
-    if (indices.length < MAX_RENDERED_SPECTRUM_PEAKS) {
-      indices.push(index);
-      let position = indices.length - 1;
-      while (position > 0) {
-        const parent = Math.floor((position - 1) / 2);
-        if (!weaker(indices[position]!, indices[parent]!)) break;
-        [indices[position], indices[parent]] = [indices[parent]!, indices[position]!];
-        position = parent;
-      }
-    } else if (weaker(indices[0]!, index)) {
-      indices[0] = index;
-      let position = 0;
-      while (position * 2 + 1 < indices.length) {
-        let child = position * 2 + 1;
-        if (child + 1 < indices.length && weaker(indices[child + 1]!, indices[child]!)) child++;
-        if (!weaker(indices[child]!, indices[position]!)) break;
-        [indices[position], indices[child]] = [indices[child]!, indices[position]!];
-        position = child;
-      }
+  function* visibleIndices() {
+    for (let index = 0; index < data.length; index++) {
+      const peak = data[index]!;
+      if (peak.mz < domain[0] || peak.mz > domain[1]) continue;
+      visibleCount++;
+      yield index;
     }
   }
+
+  const indices = selectHighestN(visibleIndices(), MAX_RENDERED_SPECTRUM_PEAKS, (left, right) => {
+    const leftIntensity = data[left]!.int;
+    const rightIntensity = data[right]!.int;
+    if (leftIntensity < rightIntensity) return -1;
+    if (leftIntensity > rightIntensity) return 1;
+    return right - left;
+  });
   indices.sort((a, b) => a - b);
   return { indices, visibleCount };
 }
