@@ -52,6 +52,64 @@ function deferred<T>() {
 }
 
 describe("app-lifetime spectrum state", () => {
+  it("reports progress, cancels without replacing the valid dataset, and permits retry", async () => {
+    const previous = dataset("valid");
+    const disposePrevious = vi.spyOn(previous.source, "dispose");
+    const work = deferred<SpectrumDataset>();
+    const importer = vi
+      .fn()
+      .mockResolvedValueOnce(previous)
+      .mockReturnValueOnce(work.promise)
+      .mockResolvedValueOnce(dataset("retry"));
+    const store = createSpectrumImportStore(importer);
+    await store.importFile(new File([""], "valid.asc"));
+    const pending = store.importFile(new File(["43 1"], "cancel.asc"));
+    const options = importer.mock.calls[1][1];
+    const progress = { phase: "reading", bytesRead: 2, totalBytes: 4, peakCount: 1 };
+    options.onProgress(progress);
+    expect(store.getSnapshot()).toMatchObject({ status: "importing", progress, dataset: previous });
+    store.cancelImport();
+    expect(options.signal.aborted).toBe(true);
+    expect(store.getSnapshot()).toMatchObject({
+      status: "cancelled",
+      filename: "cancel.asc",
+      dataset: previous,
+    });
+    options.onProgress({ ...progress, bytesRead: 4 });
+    expect(store.getSnapshot().status).toBe("cancelled");
+    const obsolete = dataset("obsolete");
+    const disposeObsolete = vi.spyOn(obsolete.source, "dispose");
+    work.resolve(obsolete);
+    await pending;
+    expect(disposeObsolete).toHaveBeenCalledOnce();
+    expect(disposePrevious).not.toHaveBeenCalled();
+    await store.importFile(new File([""], "retry.asc"));
+    expect(store.getSnapshot()).toMatchObject({ status: "loaded", dataset: dataset("retry") });
+    expect(disposePrevious).toHaveBeenCalledOnce();
+  });
+
+  it("aborts superseded work and ignores its progress", async () => {
+    const old = deferred<SpectrumDataset>();
+    const latest = deferred<SpectrumDataset>();
+    const importer = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
+    const store = createSpectrumImportStore(importer);
+    const pendingOld = store.importFile(new File([""], "old.asc"));
+    const pendingLatest = store.importFile(new File([""], "latest.asc"));
+    expect(importer.mock.calls[0][1].signal.aborted).toBe(true);
+    importer.mock.calls[0][1].onProgress({
+      phase: "reading",
+      bytesRead: 4,
+      totalBytes: 4,
+      peakCount: 1,
+    });
+    expect(store.getSnapshot()).toMatchObject({ status: "importing", filename: "latest.asc" });
+    old.reject(new DOMException("Cancelled", "AbortError"));
+    await pendingOld;
+    latest.resolve(dataset("latest"));
+    await pendingLatest;
+    expect(store.getSnapshot()).toMatchObject({ status: "loaded", dataset: dataset("latest") });
+  });
+
   it("publishes loading and success and permits reimporting the same file", async () => {
     const importer = vi.fn().mockResolvedValue(dataset("first"));
     const store = createSpectrumImportStore(importer);

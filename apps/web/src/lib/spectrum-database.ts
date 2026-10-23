@@ -193,11 +193,14 @@ export function retentionTimePredicate(range?: RetentionTimeRange): string {
  * Full-resolution measurements live in an isolated, in-memory database.
  * RT stays in the original input units. Rows are never merged or intensity-normalized here.
  * The producer awaits each insertion, so only one bounded columnar batch is in flight.
- * Parsing still materializes the input in the Rust worker.
+ * Incremental parsing and metadata accumulation run in the Rust worker.
  */
-export async function openSpectrumDatabase(ingest: SpectrumIngestor): Promise<SpectrumDataSource> {
+export async function openSpectrumDatabase(
+  ingest: SpectrumIngestor,
+  signal?: AbortSignal,
+): Promise<SpectrumDataSource> {
   const initializationStartedAt = performance.now();
-  const database = await createSpectrumDatabase();
+  const database = await createSpectrumDatabase(signal);
   const { connection, run } = database;
   let databaseMs = performance.now() - initializationStartedAt;
   let insertedRows = 0;

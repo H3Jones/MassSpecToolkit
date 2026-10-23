@@ -6,7 +6,8 @@ import type {
   MeasuredPeak,
 } from "./spectrum-database";
 export type { MeasuredPeak } from "./spectrum-database";
-import { openSpectrumFile } from "./spectrum-worker-client";
+import { openSpectrumFile, type SpectrumImportOptions } from "./spectrum-worker-client";
+export type { SpectrumImportOptions } from "./spectrum-worker-client";
 
 export const spectrumReaders = [
   {
@@ -42,7 +43,12 @@ export async function loadSpectrumView(
   return { ...selection, firstPage };
 }
 
-export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<SpectrumDataset> {
+export async function readSpectrumFile(
+  file: File,
+  spec?: TxtFormat,
+  options?: SpectrumImportOptions,
+): Promise<SpectrumDataset> {
+  options?.signal?.throwIfAborted();
   const importStartedAt = performance.now();
   const reader = spectrumReaders.find((candidate) =>
     candidate.extensions.some((extension) => file.name.toLowerCase().endsWith(extension)),
@@ -50,7 +56,9 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
   if (!reader) {
     throw new Error("Unsupported file format. Choose a text (.txt, .asc, .csv, .tsv) peak list.");
   }
-  const source = await openSpectrumFile(file, spec);
+  const source = options
+    ? await openSpectrumFile(file, spec, options)
+    : await openSpectrumFile(file, spec);
   console.debug("[ms-toolkit] Spectrum file read", {
     bytes: file.size,
     durationMs: Math.round(source.timings.readMs * 100) / 100,
@@ -68,6 +76,7 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
       retentionTimeRange = [firstRt, firstRt];
     }
     const view = await loadSpectrumView(source, retentionTimeRange);
+    options?.signal?.throwIfAborted();
     const dataset = {
       id: crypto.randomUUID(),
       metadata,

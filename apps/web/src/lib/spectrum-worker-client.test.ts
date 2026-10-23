@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { SpectrumMetadata } from "ms-toolkit/core";
+import type { SpectrumMetadata, SpectrumImportProgress } from "ms-toolkit/core";
 import { openSpectrumFile } from "./spectrum-worker-client";
 
 const remote = vi.hoisted(() => ({
@@ -9,7 +9,7 @@ const remote = vi.hoisted(() => ({
   queryTablePage: vi.fn(),
   dispose: vi.fn(),
 }));
-vi.mock("comlink", () => ({ wrap: () => remote }));
+vi.mock("comlink", () => ({ wrap: () => remote, proxy: (callback: unknown) => callback }));
 
 class TestWorker extends EventTarget {
   static instances: TestWorker[] = [];
@@ -47,6 +47,57 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("spectrum data worker client", () => {
+  it("rejects pre-aborted imports without creating workers", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      openSpectrumFile(new File([""], "cancel.asc"), undefined, { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(TestWorker.instances).toHaveLength(0);
+  });
+
+  it("aborts pending imports, suppresses late progress, and waits for child cleanup", async () => {
+    let finishCleanup!: () => void;
+    let report!: (progress: SpectrumImportProgress) => Promise<void>;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    remote.dispose.mockReturnValueOnce(cleanup);
+    remote.importFile.mockImplementationOnce((_file, _spec, callback: typeof report) => {
+      report = callback;
+      return new Promise(() => {});
+    });
+    const controller = new AbortController();
+    const progress = vi.fn();
+    const pending = openSpectrumFile(new File(["43 1"], "cancel.asc"), undefined, {
+      signal: controller.signal,
+      onProgress: progress,
+    });
+    await report({ phase: "reading", bytesRead: 1, totalBytes: 4, peakCount: 0 });
+    expect(progress).toHaveBeenCalledOnce();
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await report({ phase: "finalizing", bytesRead: 4, totalBytes: 4, peakCount: 1 });
+    expect(progress).toHaveBeenCalledOnce();
+    expect(remote.dispose).toHaveBeenCalledOnce();
+    expect(TestWorker.instances[0].terminate).not.toHaveBeenCalled();
+    finishCleanup();
+    await cleanup;
+    expect(TestWorker.instances[0].terminate).toHaveBeenCalledOnce();
+  });
+
+  it("cancels first-view queries after ingestion has completed", async () => {
+    const controller = new AbortController();
+    const source = await openSpectrumFile(new File(["43 1"], "cancel.asc"), undefined, {
+      signal: controller.signal,
+    });
+    remote.querySelection.mockReturnValueOnce(new Promise(() => {}));
+    const pending = source.querySelection();
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(remote.dispose).toHaveBeenCalledOnce();
+  });
+
   it("passes a File, receives metadata, and requests rows separately", async () => {
     const file = new File(["43 1"], "spectrum.asc");
     const read = vi.spyOn(file, "text");

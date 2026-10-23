@@ -1,4 +1,9 @@
-import { ingestTxtFile, terminateClient, type TxtFormat } from "ms-toolkit/core";
+import {
+  ingestTxtFile,
+  terminateClient,
+  type TxtFormat,
+  type SpectrumImportProgress,
+} from "ms-toolkit/core";
 import {
   openSpectrumDatabase,
   type RetentionTimeRange,
@@ -13,8 +18,13 @@ export function createSpectrumDataWorker() {
   let started = false;
   let closed = false;
   let importFinished: Promise<void> | undefined;
+  const controller = new AbortController();
   return {
-    async importFile(file: File, spec?: TxtFormat) {
+    async importFile(
+      file: File,
+      spec?: TxtFormat,
+      onProgress?: (progress: SpectrumImportProgress) => Promise<void>,
+    ) {
       if (closed || started)
         throw new Error("This spectrum data worker is already used or closed.");
       started = true;
@@ -23,10 +33,25 @@ export function createSpectrumDataWorker() {
         finish = resolve;
       });
       try {
+        await onProgress?.({
+          phase: "initializing",
+          bytesRead: 0,
+          totalBytes: file.size,
+          peakCount: 0,
+        });
         source = await openSpectrumDatabase((consume) => {
           if (closed) throw new Error("The spectrum data worker has been closed.");
-          return ingestTxtFile(file, spec, consume);
-        });
+          return ingestTxtFile(
+            file,
+            spec,
+            consume,
+            onProgress
+              ? async (progress) => {
+                  if (!closed) await onProgress(progress);
+                }
+              : undefined,
+          );
+        }, controller.signal);
         if (closed) {
           source.dispose();
           throw new Error("The spectrum data worker has been closed.");
@@ -51,6 +76,7 @@ export function createSpectrumDataWorker() {
     },
     async dispose() {
       closed = true;
+      controller.abort();
       terminateClient();
       source?.dispose();
       await importFinished;

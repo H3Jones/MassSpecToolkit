@@ -159,6 +159,106 @@ pub fn guess_txt_format<R: BufRead>(input: R) -> Result<TxtFormat, TxtReadError>
     spec.ok_or(TxtReadError::NoSampleData)
 }
 
+/// Incremental decoded-text reader retaining only an unfinished physical line.
+/// Format detection and validation match [`guess_txt_format`] followed by [`read`].
+pub struct TxtStreamReader {
+    spec: Option<TxtFormat>,
+    guessing: bool,
+    has_data: bool,
+    line_count: usize,
+    partial_line: String,
+    finished: bool,
+}
+
+impl TxtStreamReader {
+    pub fn new(spec: Option<TxtFormat>) -> Result<Self, TxtReadError> {
+        if let Some(spec) = &spec {
+            spec.validate()?;
+        }
+        Ok(Self {
+            guessing: spec.is_none(),
+            spec,
+            has_data: false,
+            line_count: 0,
+            partial_line: String::new(),
+            finished: false,
+        })
+    }
+
+    pub fn push_chunk(&mut self, chunk: &str) -> Result<Vec<Peak>, TxtReadError> {
+        if self.finished {
+            return Err(TxtReadError::InvalidState("reader is finished or failed"));
+        }
+        let result = self.parse_chunk(chunk);
+        if result.is_err() {
+            self.finished = true;
+        }
+        result
+    }
+
+    fn parse_chunk(&mut self, chunk: &str) -> Result<Vec<Peak>, TxtReadError> {
+        let mut peaks = Vec::new();
+        for part in chunk.split_inclusive('\n') {
+            if let Some(line) = part.strip_suffix('\n') {
+                let peak = if self.partial_line.is_empty() {
+                    self.parse_line(line.strip_suffix('\r').unwrap_or(line))?
+                } else {
+                    self.partial_line.push_str(line);
+                    let mut complete = std::mem::take(&mut self.partial_line);
+                    let result = self.parse_line(complete.strip_suffix('\r').unwrap_or(&complete));
+                    complete.clear();
+                    self.partial_line = complete;
+                    result?
+                };
+                peaks.extend(peak);
+            } else {
+                self.partial_line.push_str(part);
+            }
+        }
+        Ok(peaks)
+    }
+
+    fn parse_line(&mut self, line: &str) -> Result<Option<Peak>, TxtReadError> {
+        let index = self.line_count;
+        self.line_count += 1;
+        let line = strip_bom(line, index);
+        let mut peak = None;
+        if !is_ignored(line) {
+            if self.spec.is_none() {
+                self.spec = Some(guess_line(line, index + 1)?.0);
+            }
+            let spec = self
+                .spec
+                .as_ref()
+                .expect("a nonignored line supplies a format");
+            if index >= spec.skip_lines {
+                peak = Some(parse_peak(line, index + 1, spec)?);
+                self.has_data = true;
+            }
+        }
+        if self.guessing && self.line_count == PREVIEW_LINES && !self.has_data {
+            return Err(TxtReadError::NoSampleData);
+        }
+        Ok(peak)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<Peak>, TxtReadError> {
+        if self.finished {
+            return Err(TxtReadError::InvalidState("reader is finished or failed"));
+        }
+        self.finished = true;
+        let mut peaks = Vec::new();
+        if !self.partial_line.is_empty() {
+            let line = std::mem::take(&mut self.partial_line);
+            peaks.extend(self.parse_line(&line)?);
+        }
+        if self.guessing && !self.has_data {
+            return Err(TxtReadError::NoSampleData);
+        }
+        Ok(peaks)
+    }
+}
+
 fn strip_bom(line: &str, index: usize) -> &str {
     if index == 0 {
         line.strip_prefix('\u{feff}').unwrap_or(line)
@@ -301,6 +401,7 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
 pub enum TxtReadError {
     Io(io::Error),
     InvalidSpec(&'static str),
+    InvalidState(&'static str),
     NoSampleData,
     UnrecognizedFormat {
         line: usize,
@@ -327,6 +428,7 @@ impl fmt::Display for TxtReadError {
         match self {
             Self::Io(source) => write!(f, "failed to read text data: {source}"),
             Self::InvalidSpec(reason) => write!(f, "invalid text format spec: {reason}"),
+            Self::InvalidState(reason) => write!(f, "invalid text reader state: {reason}"),
             Self::NoSampleData => write!(
                 f,
                 "no data rows in the first {PREVIEW_LINES} lines; provide an explicit text format spec"

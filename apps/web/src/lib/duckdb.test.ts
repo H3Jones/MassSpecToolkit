@@ -46,6 +46,38 @@ afterEach(() => {
 });
 
 describe("spectrum database worker lifecycle", () => {
+  it("aborts database initialization and releases its worker immediately", async () => {
+    const controller = new AbortController();
+    let initializing!: () => void;
+    const started = new Promise<void>((resolve) => {
+      initializing = resolve;
+    });
+    mocks.instantiate.mockImplementationOnce(
+      () =>
+        new Promise<null>(() => {
+          initializing();
+        }),
+    );
+    const pending = createSpectrumDatabase(controller.signal);
+    await started;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(TestWorker.latest.terminate).toHaveBeenCalledOnce();
+    expect(mocks.detach).toHaveBeenCalledOnce();
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
+  it("aborts pending database operations without double-disposing the worker", async () => {
+    const controller = new AbortController();
+    const source = await createSpectrumDatabase(controller.signal);
+    const pending = source.run(() => new Promise<never>(() => {}));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await expect(source.run(async () => 1)).rejects.toMatchObject({ name: "AbortError" });
+    source.dispose();
+    expect(TestWorker.latest.terminate).toHaveBeenCalledOnce();
+  });
+
   it("waits for the worker and initializes an in-memory database", async () => {
     const source = await createSpectrumDatabase();
     expect(mocks.instantiate).toHaveBeenCalledWith("http://localhost/duckdb.wasm");

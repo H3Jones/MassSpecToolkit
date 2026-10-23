@@ -376,10 +376,12 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
 export default function SpectrumPage({
   state,
   importFile,
+  cancelImport,
   dark,
 }: {
   state: SpectrumImportState;
   importFile: (file: File) => Promise<void>;
+  cancelImport: () => void;
   dark: boolean;
 }) {
   return (
@@ -439,11 +441,31 @@ export default function SpectrumPage({
             Refreshing or closing the page clears it; nothing is saved to disk yet.
           </p>
           <p id="spectrum-performance" className="text-xs text-muted-foreground">
-            No fixed file-size limit is enforced. Parsing still reads the whole file, and large
-            imports may require substantial memory. GC/LC imports initially display the first RT
-            slice. Selecting another file supersedes the result but does not stop parsing already
-            running.
+            No fixed file-size limit is enforced. Text is streamed in bounded chunks, but the
+            in-memory database may still require substantial memory. GC/LC imports initially display
+            the first RT slice. Selecting another file cancels the current import.
           </p>
+          {state.status === "importing" && (
+            <div className="flex items-center gap-3">
+              <progress
+                aria-label="Spectrum import progress"
+                max={state.progress?.totalBytes || 1}
+                value={
+                  state.progress && state.progress.phase !== "initializing"
+                    ? state.progress.bytesRead
+                    : undefined
+                }
+                className="h-2 min-w-0 flex-1 accent-primary"
+              />
+              <button
+                type="button"
+                onClick={cancelImport}
+                className="rounded-md border px-3 py-2 text-sm"
+              >
+                Cancel import
+              </button>
+            </div>
+          )}
           <p
             role="status"
             aria-live="polite"
@@ -452,8 +474,18 @@ export default function SpectrumPage({
           >
             {(() => {
               switch (state.status) {
-                case "importing":
-                  return `Importing ${state.filename}...${state.dataset ? " The previous spectrum remains below." : ""}`;
+                case "importing": {
+                  const progress = state.progress;
+                  const detail =
+                    !progress || progress.phase === "initializing"
+                      ? "Initializing database..."
+                      : progress.phase === "finalizing"
+                        ? "Finalizing database and preparing the first view..."
+                        : `${Math.floor((progress.bytesRead / Math.max(1, progress.totalBytes)) * 100)}% read; ${progress.peakCount.toLocaleString()} measurements parsed.`;
+                  return `Importing ${state.filename}: ${detail}${state.dataset ? " The previous spectrum remains below." : ""}`;
+                }
+                case "cancelled":
+                  return `Cancelled import of ${state.filename}.${state.dataset ? " The previous spectrum is unchanged." : " Choose a file to try again."}`;
                 case "loaded":
                   return `Loaded ${state.dataset.metadata.filename}.`;
                 case "empty":

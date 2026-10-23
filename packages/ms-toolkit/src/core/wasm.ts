@@ -1,6 +1,6 @@
 import { transfer } from "comlink";
 import init, {
-  TxtSpectrumReader,
+  StreamingTxtSpectrumReader,
   assign_peak,
   evaluate_ion,
   fine_isotope_distribution,
@@ -22,6 +22,7 @@ import type {
   TxtFormat,
   SpectrumPeakColumns,
   SpectrumMetadata,
+  SpectrumImportProgress,
 } from "./types.ts";
 
 let ready: Promise<unknown> | undefined;
@@ -37,22 +38,33 @@ function toError(error: unknown): Error {
 
 /** Typed wrapper around the wasm module. Initialises it lazily on first use. */
 export const api = {
-  /** Reads and parses the File here; only bounded columnar batches leave this worker. */
+  /** Streams UTF-8 in 64 KiB reads, awaiting insertion before producing another full batch. */
   async ingestTxt(
     file: File,
     spec: TxtFormat | undefined,
     consume: (batch: SpectrumPeakColumns) => Promise<void>,
+    onProgress?: (progress: SpectrumImportProgress) => Promise<void>,
   ): Promise<{ metadata: SpectrumMetadata; readMs: number; parseMs: number }> {
     await ensureInit();
-    const readStartedAt = performance.now();
-    const text = await file.text();
-    const readMs = performance.now() - readStartedAt;
-    let reader: TxtSpectrumReader | undefined;
-    try {
-      const parseStartedAt = performance.now();
-      reader = new TxtSpectrumReader(text, spec, file.name);
-      const metadata = reader.metadata();
-      const parseMs = performance.now() - parseStartedAt;
+    let readMs = 0;
+    let parseMs = 0;
+    let bytesRead = 0;
+    let lastProgressAt = -Infinity;
+    let input: ReadableStreamBYOBReader | undefined;
+    let ended = false;
+    let reader: StreamingTxtSpectrumReader | undefined;
+    let failure: Error | undefined;
+    const report = async (phase: SpectrumImportProgress["phase"], force = false) => {
+      if (!onProgress || (!force && performance.now() - lastProgressAt < 100)) return;
+      await onProgress({
+        phase,
+        bytesRead,
+        totalBytes: file.size,
+        peakCount: reader?.peak_count() ?? 0,
+      });
+      lastProgressAt = performance.now();
+    };
+    const drain = async (reader: StreamingTxtSpectrumReader) => {
       for (let native = reader.next_batch(); native; native = reader.next_batch()) {
         try {
           const batch: SpectrumPeakColumns = {
@@ -83,11 +95,55 @@ export const api = {
           native.free();
         }
       }
+    };
+    try {
+      reader = new StreamingTxtSpectrumReader(spec, file.name);
+      input = file.stream().getReader({ mode: "byob" });
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      let buffer = new ArrayBuffer(65_536);
+      await report("reading", true);
+      for (;;) {
+        const readStartedAt = performance.now();
+        const { value, done } = await input.read(new Uint8Array(buffer));
+        readMs += performance.now() - readStartedAt;
+        if (value?.byteLength) {
+          buffer = value.buffer;
+          bytesRead += value.byteLength;
+          const parseStartedAt = performance.now();
+          reader.push_chunk(decoder.decode(value, { stream: true }));
+          parseMs += performance.now() - parseStartedAt;
+          await drain(reader);
+          await report("reading");
+        }
+        if (done) {
+          ended = true;
+          break;
+        }
+      }
+      if (bytesRead !== file.size)
+        throw new Error("The spectrum stream ended before the entire file was read.");
+      const parseStartedAt = performance.now();
+      reader.push_chunk(decoder.decode());
+      reader.finish();
+      const metadata = reader.metadata();
+      parseMs += performance.now() - parseStartedAt;
+      await drain(reader);
+      await report("finalizing", true);
       return { metadata, readMs, parseMs };
     } catch (error) {
-      throw toError(error);
+      failure = toError(error);
+      throw failure;
     } finally {
       reader?.free();
+      if (input) {
+        try {
+          if (!ended) await input.cancel(failure);
+        } catch (error) {
+          console.error("[ms-toolkit] Spectrum stream cleanup failed", error);
+        } finally {
+          input.releaseLock();
+        }
+      }
     }
   },
 

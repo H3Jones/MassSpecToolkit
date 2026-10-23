@@ -26,3 +26,11 @@ export interface SpectrumPeakColumns {
   readonly retentionTime: Float64Array;
   readonly retentionTimeValidity: Uint8Array;
 }
+
+export interface SpectrumImportProgress {
+  readonly phase: "initializing" | "reading" | "finalizing";
+  readonly bytesRead: number;
+  readonly totalBytes: number;
+  /** Validated rows, including any bounded batch still awaiting insertion. */
+  readonly peakCount: number;
+}

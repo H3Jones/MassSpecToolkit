@@ -111,6 +111,40 @@ pub struct SpectrumMetadata {
     pub maximum_retention_time: Option<f64>,
 }
 
+impl SpectrumMetadata {
+    pub fn from_peak(filename: impl Into<String>, peak: Peak) -> Self {
+        let mut metadata = Self {
+            filename: filename.into(),
+            spectrum_type: SpectrumType::Direct,
+            peak_count: 0,
+            minimum_mz: peak.mz(),
+            maximum_mz: peak.mz(),
+            minimum_intensity: peak.intensity(),
+            maximum_intensity: peak.intensity(),
+            minimum_retention_time: None,
+            maximum_retention_time: None,
+        };
+        metadata.include_peak(peak);
+        metadata
+    }
+
+    /// Updates full-file bounds without retaining the measurement.
+    pub fn include_peak(&mut self, peak: Peak) {
+        self.peak_count += 1;
+        self.minimum_mz = self.minimum_mz.min(peak.mz());
+        self.maximum_mz = self.maximum_mz.max(peak.mz());
+        self.minimum_intensity = self.minimum_intensity.min(peak.intensity());
+        self.maximum_intensity = self.maximum_intensity.max(peak.intensity());
+        if let Some(rt) = peak.retention_time() {
+            self.spectrum_type = SpectrumType::Hyphenated;
+            self.minimum_retention_time =
+                Some(self.minimum_retention_time.map_or(rt, |min| min.min(rt)));
+            self.maximum_retention_time =
+                Some(self.maximum_retention_time.map_or(rt, |max| max.max(rt)));
+        }
+    }
+}
+
 /// An unannotated centroid spectrum, which may be empty.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MassSpectrum {
@@ -129,36 +163,10 @@ impl MassSpectrum {
 
     /// Empty spectra have no bounds. Any measured RT, including zero, is hyphenated data.
     pub fn metadata(&self, filename: impl Into<String>) -> Option<SpectrumMetadata> {
-        let first = self.peaks.first()?;
-        let mut metadata = SpectrumMetadata {
-            filename: filename.into(),
-            spectrum_type: SpectrumType::Direct,
-            peak_count: self.peaks.len(),
-            minimum_mz: first.mz(),
-            maximum_mz: first.mz(),
-            minimum_intensity: first.intensity(),
-            maximum_intensity: first.intensity(),
-            minimum_retention_time: None,
-            maximum_retention_time: None,
-        };
-        for peak in &self.peaks {
-            metadata.minimum_mz = metadata.minimum_mz.min(peak.mz());
-            metadata.maximum_mz = metadata.maximum_mz.max(peak.mz());
-            metadata.minimum_intensity = metadata.minimum_intensity.min(peak.intensity());
-            metadata.maximum_intensity = metadata.maximum_intensity.max(peak.intensity());
-            if let Some(rt) = peak.retention_time() {
-                metadata.spectrum_type = SpectrumType::Hyphenated;
-                metadata.minimum_retention_time = Some(
-                    metadata
-                        .minimum_retention_time
-                        .map_or(rt, |min| min.min(rt)),
-                );
-                metadata.maximum_retention_time = Some(
-                    metadata
-                        .maximum_retention_time
-                        .map_or(rt, |max| max.max(rt)),
-                );
-            }
+        let (first, remaining) = self.peaks.split_first()?;
+        let mut metadata = SpectrumMetadata::from_peak(filename, *first);
+        for peak in remaining {
+            metadata.include_peak(*peak);
         }
         Some(metadata)
     }

@@ -218,6 +218,7 @@ function App() {
               <SpectrumPage
                 state={spectrumState}
                 importFile={spectrumStore.importFile}
+                cancelImport={spectrumStore.cancelImport}
                 dark={dark}
               />
             </Suspense>

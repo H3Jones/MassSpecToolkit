@@ -1,10 +1,20 @@
-import { wrap } from "comlink";
-import type { TxtFormat } from "ms-toolkit/core";
+import { proxy, wrap } from "comlink";
+import type { TxtFormat, SpectrumImportProgress } from "ms-toolkit/core";
 import type { SpectrumDataWorkerApi } from "./spectrum-data";
 import type { SpectrumDataSource } from "./spectrum-database";
 
 /** File contents and imported measurement columns never pass through the UI thread. */
-export async function openSpectrumFile(file: File, spec?: TxtFormat): Promise<SpectrumDataSource> {
+export interface SpectrumImportOptions {
+  readonly signal?: AbortSignal;
+  readonly onProgress?: (progress: SpectrumImportProgress) => void;
+}
+
+export async function openSpectrumFile(
+  file: File,
+  spec?: TxtFormat,
+  options: SpectrumImportOptions = {},
+): Promise<SpectrumDataSource> {
+  options.signal?.throwIfAborted();
   const worker = new Worker(new URL("./spectrum-data-worker.ts", import.meta.url), {
     type: "module",
   });
@@ -48,19 +58,36 @@ export async function openSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
   function dispose() {
     if (disposed) return;
     disposed = true;
-    const alreadyFailed = failure !== undefined;
+    options.signal?.removeEventListener("abort", abort);
     fail(new Error("The spectrum data worker has been closed."));
-    if (alreadyFailed) {
-      terminate();
-      return;
-    }
+    if (terminated) return;
     void remote.dispose().then(terminate, (error: unknown) => {
       console.error("[ms-toolkit] Spectrum worker cleanup failed", error);
       terminate();
     });
   }
+  const abort = () => {
+    fail(
+      options.signal?.reason instanceof Error
+        ? options.signal.reason
+        : new DOMException("Import cancelled.", "AbortError"),
+    );
+    dispose();
+  };
+  options.signal?.addEventListener("abort", abort, { once: true });
   try {
-    const imported = await run(() => remote.importFile(file, spec));
+    if (options.signal?.aborted) abort();
+    const imported = await run(() =>
+      options.onProgress
+        ? remote.importFile(
+            file,
+            spec,
+            proxy(async (progress: SpectrumImportProgress) => {
+              if (!disposed && !options.signal?.aborted) options.onProgress?.(progress);
+            }),
+          )
+        : remote.importFile(file, spec),
+    );
     return {
       ...imported,
       querySelection: (range) => run(() => remote.querySelection(range)),

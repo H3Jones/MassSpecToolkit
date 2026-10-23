@@ -6,15 +6,18 @@ import ehWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
 import DuckDBWorker from "./duckdb-worker.ts?worker&inline";
 
 /** A dataset owns its worker; replacing or discarding it releases the entire database. */
-export async function createSpectrumDatabase() {
+export async function createSpectrumDatabase(signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const bundle = await selectBundle({
     mvp: { mainModule: mvpWasm, mainWorker: mvpWorker },
     eh: { mainModule: ehWasm, mainWorker: ehWorker },
   });
+  signal?.throwIfAborted();
   if (!bundle.mainWorker) throw new Error("No compatible DuckDB worker is available.");
   // Single-threaded workers also work on GitHub Pages, without COOP/COEP headers.
   // Inline the bootstrap to avoid a separately emitted nested-worker entry.
   const worker = new DuckDBWorker();
+  let disposed = false;
   let failure: Error | undefined;
   const pending = new Set<(error: Error) => void>();
   const fail = (error: Error) => {
@@ -57,12 +60,25 @@ export async function createSpectrumDatabase() {
     }
   }
   function dispose() {
+    if (disposed) return;
+    disposed = true;
+    signal?.removeEventListener("abort", abort);
     fail(new Error("The spectrum database has been closed."));
     // Reject tracked operations and detach listeners before terminating the worker.
     db.detach();
     worker.terminate();
   }
+  const abort = () => {
+    fail(
+      signal?.reason instanceof Error
+        ? signal.reason
+        : new DOMException("Import cancelled.", "AbortError"),
+    );
+    dispose();
+  };
+  signal?.addEventListener("abort", abort, { once: true });
   try {
+    signal?.throwIfAborted();
     worker.postMessage({
       type: "ms-duckdb-load",
       url: new URL(bundle.mainWorker, location.href).href,

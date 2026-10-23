@@ -65,6 +65,38 @@ beforeEach(() => {
 });
 
 describe("worker-side spectrum coordination", () => {
+  it("forwards initialization and parser progress without publishing a partial source", async () => {
+    const file = new File(["43 1"], "spectrum.asc");
+    const report = vi.fn(async () => {});
+    mocks.ingestTxt.mockImplementationOnce(
+      async (
+        _file,
+        _spec,
+        callback: typeof consume,
+        progress: (value: unknown) => Promise<void>,
+      ) => {
+        await callback(batch);
+        await progress({ phase: "reading", bytesRead: 4, totalBytes: 4, peakCount: 1 });
+        return { metadata: source.metadata, readMs: 1, parseMs: 2 };
+      },
+    );
+    const worker = createSpectrumDataWorker();
+    await worker.importFile(file, undefined, report);
+    expect(report).toHaveBeenNthCalledWith(1, {
+      phase: "initializing",
+      bytesRead: 0,
+      totalBytes: 4,
+      peakCount: 0,
+    });
+    expect(report).toHaveBeenNthCalledWith(2, {
+      phase: "reading",
+      bytesRead: 4,
+      totalBytes: 4,
+      peakCount: 1,
+    });
+    await worker.dispose();
+  });
+
   it("connects columnar parsing to the insertion sink and releases the Rust worker after import", async () => {
     const worker = createSpectrumDataWorker();
     const file = new File(["43 1"], "spectrum.asc");
@@ -72,7 +104,7 @@ describe("worker-side spectrum coordination", () => {
       metadata: source.metadata,
       timings: source.timings,
     });
-    expect(mocks.ingestTxt).toHaveBeenCalledWith(file, undefined, expect.any(Function));
+    expect(mocks.ingestTxt).toHaveBeenCalledWith(file, undefined, expect.any(Function), undefined);
     expect(consume).toHaveBeenCalledWith(batch);
     expect(mocks.terminateClient).toHaveBeenCalledOnce();
     expect(dispose).not.toHaveBeenCalled();
@@ -138,14 +170,21 @@ describe("worker-side spectrum coordination", () => {
 
   it("rejects an in-flight parser request and awaits its cleanup on disposal", async () => {
     let rejectParser!: (error: Error) => void;
-    mocks.ingestTxt.mockReturnValueOnce(
-      new Promise((_, reject) => {
-        rejectParser = reject;
-      }),
+    let parserStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      parserStarted = resolve;
+    });
+    mocks.ingestTxt.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectParser = reject;
+          parserStarted();
+        }),
     );
     mocks.terminateClient.mockImplementationOnce(() => rejectParser(new Error("Parser closed")));
     const worker = createSpectrumDataWorker();
     const pending = worker.importFile(new File([""], "obsolete.asc"));
+    await started;
     const rejected = expect(pending).rejects.toThrow("Parser closed");
     await worker.dispose();
     await rejected;

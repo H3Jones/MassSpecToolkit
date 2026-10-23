@@ -1,6 +1,6 @@
 import { proxy, wrap, type Remote } from "comlink";
 import type { MsApi } from "./wasm.ts";
-import type { SpectrumPeakColumns, TxtFormat } from "./types.ts";
+import type { SpectrumImportProgress, SpectrumPeakColumns, TxtFormat } from "./types.ts";
 
 export type {
   AtomCount,
@@ -18,6 +18,7 @@ export type {
   SpectrumMetadata,
   SpectrumType,
   SpectrumPeakColumns,
+  SpectrumImportProgress,
   TxtDelimiter,
   TxtFormat,
 } from "./types.ts";
@@ -72,14 +73,19 @@ export function terminateClient(): void {
   shutdownClient?.();
 }
 
-/** Sends the File to the parser worker and awaits each batch consumer. */
+/** Streams the File in the parser worker with insertion backpressure and throttled progress.
+ * `terminateClient` cancels its in-flight work and releases the worker.
+ */
 export function ingestTxtFile(
   file: File,
   spec: TxtFormat | undefined,
   consume: (batch: SpectrumPeakColumns) => Promise<void>,
+  onProgress?: (progress: SpectrumImportProgress) => Promise<void>,
 ): ReturnType<MsApi["ingestTxt"]> {
   // Linked apps can have another Comlink copy; its callback markers are not interchangeable.
-  return callClient((worker) => worker.ingestTxt(file, spec, proxy(consume)));
+  return callClient((worker) =>
+    worker.ingestTxt(file, spec, proxy(consume), onProgress ? proxy(onProgress) : undefined),
+  );
 }
 
 /** Rejects pending work on worker load/crash errors; a later call starts a fresh worker. */
