@@ -3,6 +3,8 @@ import {
   openSpectrumDatabase,
   type RetentionTimeRange,
   type SpectrumDataSource,
+  type SpectrumChartRequest,
+  type SpectrumTableRequest,
 } from "./spectrum-database";
 
 /** One dataset per data worker; its Rust reader is released as soon as ingestion finishes. */
@@ -35,9 +37,17 @@ export function createSpectrumDataWorker() {
         finish();
       }
     },
-    async queryPeaks(range?: RetentionTimeRange) {
+    async querySelection(range?: RetentionTimeRange) {
       if (closed || !source) throw new Error("The spectrum database is not open.");
-      return source.queryPeaks(range);
+      return source.querySelection(range);
+    },
+    async queryChart(request: SpectrumChartRequest, range?: RetentionTimeRange) {
+      if (closed || !source) throw new Error("The spectrum database is not open.");
+      return source.queryChart(request, range);
+    },
+    async queryTablePage(request: SpectrumTableRequest, range?: RetentionTimeRange) {
+      if (closed || !source) throw new Error("The spectrum database is not open.");
+      return source.queryTablePage(request, range);
     },
     async dispose() {
       closed = true;

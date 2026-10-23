@@ -1,10 +1,11 @@
-import type { SpectrumPeakResult, SpectrumMetadata, TxtFormat } from "ms-toolkit/core";
-import { normalizeSpectrumPeaks, type SpectrumPeak } from "ms-toolkit/charts";
+import type { SpectrumMetadata, TxtFormat } from "ms-toolkit/core";
 import type {
   RetentionTimeRange,
   SpectrumDataSource,
-  StoredSpectrumPeak,
+  SpectrumSelection,
+  MeasuredPeak,
 } from "./spectrum-database";
+export type { MeasuredPeak } from "./spectrum-database";
 import { openSpectrumFile } from "./spectrum-worker-client";
 
 export const spectrumReaders = [
@@ -17,20 +18,8 @@ export const spectrumReaders = [
   },
 ] as const;
 
-export type MeasuredPeak = Pick<SpectrumPeakResult, keyof SpectrumPeakResult> & {
-  readonly id: number;
-  readonly relativeIntensity: number;
-};
-
-export interface SpectrumView {
-  readonly peaks: readonly MeasuredPeak[];
-  readonly chartPeaks: readonly SpectrumPeak[];
-  readonly summary?: {
-    readonly minimumMz: number;
-    readonly maximumMz: number;
-    readonly basePeak: MeasuredPeak;
-    readonly basePeakCount: number;
-  };
+export interface SpectrumView extends SpectrumSelection {
+  readonly firstPage: readonly MeasuredPeak[];
 }
 
 export interface SpectrumDataset extends SpectrumView {
@@ -41,35 +30,16 @@ export interface SpectrumDataset extends SpectrumView {
   readonly retentionTimeRange?: RetentionTimeRange;
 }
 
-/** Relative intensities use the entire selected RT interval, not the chart viewport. */
-export function prepareSpectrumView(rows: readonly StoredSpectrumPeak[]): SpectrumView {
-  if (!rows.length) return { peaks: [], chartPeaks: [] };
-  const chartPeaks = normalizeSpectrumPeaks(
-    rows.map((peak) => ({ mz: peak.mz, int: peak.intensity })),
-  );
-  const peaks = rows.map((peak, index) => ({
-    ...peak,
-    relativeIntensity: chartPeaks[index].relativeIntensity,
-  }));
-  let minimumMz = peaks[0].mz;
-  let maximumMz = peaks[0].mz;
-  let basePeak = peaks[0];
-  let basePeakCount = 0;
-  for (const peak of peaks) {
-    minimumMz = Math.min(minimumMz, peak.mz);
-    maximumMz = Math.max(maximumMz, peak.mz);
-    if (peak.intensity > basePeak.intensity) {
-      basePeak = peak;
-      basePeakCount = 1;
-    } else if (peak.intensity === basePeak.intensity) {
-      ++basePeakCount;
-    }
-  }
-  return {
-    peaks,
-    chartPeaks,
-    summary: { minimumMz, maximumMz, basePeak, basePeakCount },
-  };
+/** Fetch only aggregate statistics and the first ten rows, never the complete selection. */
+export async function loadSpectrumView(
+  source: SpectrumDataSource,
+  range?: RetentionTimeRange,
+): Promise<SpectrumView> {
+  const [selection, firstPage] = await Promise.all([
+    source.querySelection(range),
+    source.queryTablePage({ pageIndex: 0, pageSize: 10, sorting: [] }, range),
+  ]);
+  return { ...selection, firstPage };
 }
 
 export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<SpectrumDataset> {
@@ -97,7 +67,7 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
       if (firstRt === null) throw new Error("Hyphenated spectrum metadata is missing RT bounds.");
       retentionTimeRange = [firstRt, firstRt];
     }
-    const view = prepareSpectrumView(await source.queryPeaks(retentionTimeRange));
+    const view = await loadSpectrumView(source, retentionTimeRange);
     const dataset = {
       id: crypto.randomUUID(),
       metadata,
@@ -108,7 +78,7 @@ export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
     };
     console.debug("[ms-toolkit] Spectrum import complete", {
       peakCount: metadata.peakCount,
-      selectedPeakCount: view.peaks.length,
+      selectedPeakCount: view.peakCount,
       databaseMs: Math.round(source.timings.databaseMs * 100) / 100,
       durationMs: Math.round((performance.now() - importStartedAt) * 100) / 100,
     });

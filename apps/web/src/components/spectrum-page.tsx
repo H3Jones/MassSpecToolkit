@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { FileUp, Waves } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  prepareSpectrumView,
+  loadSpectrumView,
   spectrumReaders,
   type MeasuredPeak,
   type SpectrumDataset,
@@ -11,26 +11,29 @@ import {
 import type { SpectrumImportState } from "@/lib/spectrum-import";
 import type { SpectrumIntensityMode } from "ms-toolkit/charts";
 import type { MsMassSpectrum } from "ms-toolkit/mass-spectrum";
-import type { MsTable, MsTableColumn } from "ms-toolkit/table";
+import type { MsTable, MsTableColumn, MsTablePage, MsTablePageRequest } from "ms-toolkit/table";
 import "ms-toolkit/mass-spectrum";
 import "ms-toolkit/table";
 
 const columns: MsTableColumn<MeasuredPeak>[] = [
-  { accessorKey: "mz", header: "m/z" },
-  { accessorKey: "intensity", header: "Original intensity" },
+  { accessorKey: "mz", header: "m/z", sortDescFirst: true },
+  { accessorKey: "intensity", header: "Original intensity", sortDescFirst: true },
   {
     accessorKey: "relativeIntensity",
     header: "Relative intensity (%)",
+    sortDescFirst: true,
     cell: ({ getValue }) => Number(getValue()).toPrecision(6),
   },
   {
     accessorKey: "signal_to_noise",
     header: "Signal-to-noise",
+    sortDescFirst: true,
     cell: ({ getValue }) => (getValue() == null ? "Not available" : String(getValue())),
   },
   {
     accessorKey: "retention_time",
     header: "RT (input units)",
+    sortDescFirst: true,
     cell: ({ getValue }) => (getValue() == null ? "Not available" : String(getValue())),
   },
 ];
@@ -46,9 +49,20 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
   const [querying, setQuerying] = useState(false);
   const [queryError, setQueryError] = useState("");
   const queryRun = useRef(0);
+  const tableRun = useRef(0);
+  const [tablePage, setTablePage] = useState<MsTablePage<MeasuredPeak>>({
+    rows: dataset.firstPage,
+    rowCount: dataset.peakCount,
+    pageIndex: 0,
+    pageSize: 10,
+    sorting: [],
+  });
+  const [tableLoading, setTableLoading] = useState(false);
+  const [tableError, setTableError] = useState("");
   useEffect(
     () => () => {
       ++queryRun.current;
+      ++tableRun.current;
     },
     [],
   );
@@ -62,13 +76,23 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
         throw new RangeError("Enter both RT bounds.");
       }
       const range = [Number(minimumRt), Number(maximumRt)] as const;
-      const rows = await dataset.source.queryPeaks(range);
+      const nextView = await loadSpectrumView(dataset.source, range);
       if (current !== queryRun.current) return;
-      setView(prepareSpectrumView(rows));
+      ++tableRun.current;
+      setTableLoading(false);
+      setTableError("");
+      setTablePage({
+        rows: nextView.firstPage,
+        rowCount: nextView.peakCount,
+        pageIndex: 0,
+        pageSize: 10,
+        sorting: [],
+      });
+      setView(nextView);
       setAppliedRange(range);
       setRenderError("");
       console.debug("[ms-toolkit] Spectrum RT query complete", {
-        selectedPeakCount: rows.length,
+        selectedPeakCount: nextView.peakCount,
         durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
       });
     } catch (error) {
@@ -82,33 +106,81 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
   const onError = useCallback((event: Event) => {
     setRenderError((event as CustomEvent<Error>).detail.message);
   }, []);
+  const onViewportLoaded = useCallback(() => setRenderError(""), []);
   const spectrum = useCallback(
     (chartElement: MsMassSpectrum | null) => {
       if (!chartElement) return;
       chartElement.addEventListener("ms-error", onError);
+      chartElement.addEventListener("ms-viewport-loaded", onViewportLoaded);
       try {
-        chartElement.data = view.chartPeaks;
+        chartElement.viewportSource = {
+          peakCount: view.peakCount,
+          maximumMz: view.summary?.maximumMz ?? 0,
+          minimumIntensity: view.summary?.minimumIntensity ?? 0,
+          maximumIntensity: view.summary?.maximumIntensity ?? 0,
+          async query(request) {
+            const result = await dataset.source.queryChart(request, appliedRange);
+            return {
+              visibleCount: result.visibleCount,
+              peaks: result.peaks.map((peak) => ({ mz: peak.mz, int: peak.intensity })),
+            };
+          },
+        };
       } catch (error) {
         setRenderError(error instanceof Error ? error.message : String(error));
       }
-      return () => chartElement.removeEventListener("ms-error", onError);
+      return () => {
+        chartElement.removeEventListener("ms-error", onError);
+        chartElement.removeEventListener("ms-viewport-loaded", onViewportLoaded);
+      };
     },
-    [view.chartPeaks, onError],
+    [view, dataset.source, appliedRange, onError, onViewportLoaded],
   );
-  const table = useCallback(
-    (tableElement: MsTable<MeasuredPeak> | null) => {
-      if (!tableElement) return;
-      tableElement.addEventListener("ms-error", onError);
+  const requestTablePage = useCallback(
+    async (request: MsTablePageRequest) => {
+      const current = ++tableRun.current;
+      setTableLoading(true);
+      setTableError("");
       try {
-        tableElement.columns = columns;
-        tableElement.data = view.peaks;
+        const rows = await dataset.source.queryTablePage(request, appliedRange);
+        if (current !== tableRun.current) return;
+        setTablePage({ ...request, rows, rowCount: view.peakCount });
       } catch (error) {
-        setRenderError(error instanceof Error ? error.message : String(error));
+        if (current === tableRun.current)
+          setTableError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (current === tableRun.current) setTableLoading(false);
       }
-      return () => tableElement.removeEventListener("ms-error", onError);
     },
-    [view.peaks, onError],
+    [dataset.source, appliedRange, view.peakCount],
   );
+  const onPageRequest = useCallback(
+    (event: Event) => {
+      void requestTablePage((event as CustomEvent<MsTablePageRequest>).detail);
+    },
+    [requestTablePage],
+  );
+  const table = useRef<MsTable<MeasuredPeak>>(null);
+  useEffect(() => {
+    const tableElement = table.current;
+    if (!tableElement) return;
+    tableElement.addEventListener("ms-error", onError);
+    tableElement.addEventListener("ms-page-request", onPageRequest);
+    try {
+      tableElement.columns = columns;
+      tableElement.page = tablePage;
+    } catch (error) {
+      tableElement.dispatchEvent(
+        new CustomEvent("ms-error", {
+          detail: error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+    }
+    return () => {
+      tableElement.removeEventListener("ms-error", onError);
+      tableElement.removeEventListener("ms-page-request", onPageRequest);
+    };
+  }, [tablePage, onError, onPageRequest]);
 
   const { summary } = view;
   return (
@@ -140,7 +212,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
                 RT range in file: {metadata.minimumRetentionTime} - {metadata.maximumRetentionTime}{" "}
                 (original input units). Initially showing the first RT slice. Bounds are inclusive;
                 equal bounds select one RT value. Peaks are shown individually, not summed into a
-                combined spectrum. A wide range may require substantial memory.
+                combined spectrum. Chart points and table pages are queried separately.
               </p>
               <div className="flex flex-wrap items-end gap-3">
                 <label className="grid gap-1">
@@ -180,7 +252,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
               <p role="status" aria-live="polite">
                 {querying
                   ? "Querying DuckDB. The previous view remains visible."
-                  : `Showing ${view.peaks.length.toLocaleString()} measurements.`}
+                  : `Showing ${view.peakCount.toLocaleString()} measurements.`}
               </p>
               {appliedRange && (
                 <p className="text-muted-foreground">
@@ -197,7 +269,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           <dl className="grid gap-5 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Peaks</dt>
-              <dd className="mt-1 font-mono">{view.peaks.length.toLocaleString()}</dd>
+              <dd className="mt-1 font-mono">{view.peakCount.toLocaleString()}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">m/z range</dt>
@@ -276,15 +348,24 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           <p className="text-sm text-muted-foreground">
             Original file order. Use column headings to sort; sorting does not change the chart.
             Relative intensities use all peaks in the selected RT interval (or the entire spectrum
-            without RT), not just the visible rows.
+            without RT), not just the visible rows. Missing values sort last.
           </p>
         </CardHeader>
         <CardContent className="min-w-0">
+          <p role="status" aria-live="polite" className="mb-2 text-sm">
+            {tableLoading ? "Loading peaks. The previous table page remains visible." : ""}
+          </p>
+          {tableError && (
+            <p role="alert" className="mb-2 text-sm text-destructive">
+              Could not load the table page: {tableError} The previous page is unchanged.
+            </p>
+          )}
           {createElement("ms-table", {
             ref: table,
             className: "spectrum-table",
             "page-size": "10",
             "aria-label": `Peaks from ${metadata.filename}`,
+            loading: tableLoading ? "" : undefined,
           })}
         </CardContent>
       </Card>

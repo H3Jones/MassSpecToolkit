@@ -1,9 +1,41 @@
 import { Float64, Table, makeData, makeVector, vectorFromArray } from "apache-arrow";
 import type { SpectrumMetadata, SpectrumPeakColumns, SpectrumPeakResult } from "ms-toolkit/core";
+import { MAX_RENDERED_SPECTRUM_PEAKS, normalizeSpectrumPeaks } from "ms-toolkit/charts";
 import { createSpectrumDatabase } from "./duckdb";
 
 export type RetentionTimeRange = readonly [number, number];
 export type StoredSpectrumPeak = SpectrumPeakResult & { readonly id: number };
+export type MeasuredPeak = Pick<StoredSpectrumPeak, keyof StoredSpectrumPeak> & {
+  readonly relativeIntensity: number;
+};
+
+export interface SpectrumSelection {
+  readonly peakCount: number;
+  readonly summary?: {
+    readonly minimumMz: number;
+    readonly maximumMz: number;
+    readonly minimumIntensity: number;
+    readonly maximumIntensity: number;
+    readonly basePeak: MeasuredPeak;
+    readonly basePeakCount: number;
+  };
+}
+
+export interface SpectrumChartRequest {
+  readonly mzRange: readonly [number, number];
+  readonly binCount: number;
+}
+
+export interface SpectrumChartResult {
+  readonly peaks: readonly StoredSpectrumPeak[];
+  readonly visibleCount: number;
+}
+
+export interface SpectrumTableRequest {
+  readonly pageIndex: number;
+  readonly pageSize: number;
+  readonly sorting: readonly { readonly id: string; readonly desc: boolean }[];
+}
 
 export interface SpectrumIngestionResult {
   readonly metadata: Readonly<SpectrumMetadata>;
@@ -22,7 +54,17 @@ export interface SpectrumDataSource {
     readonly parseMs: number;
     readonly databaseMs: number;
   };
-  queryPeaks(range?: RetentionTimeRange): Promise<StoredSpectrumPeak[]>;
+  querySelection(this: void, range?: RetentionTimeRange): Promise<SpectrumSelection>;
+  queryChart(
+    this: void,
+    request: SpectrumChartRequest,
+    range?: RetentionTimeRange,
+  ): Promise<SpectrumChartResult>;
+  queryTablePage(
+    this: void,
+    request: SpectrumTableRequest,
+    range?: RetentionTimeRange,
+  ): Promise<MeasuredPeak[]>;
   dispose(): void;
 }
 
@@ -52,6 +94,84 @@ function numberValue(value: unknown, column: string): number {
     throw new Error(`The spectrum database returned an invalid ${column} value.`);
   }
   return value;
+}
+
+function storedPeak(row: Record<string, unknown>): StoredSpectrumPeak {
+  const rt = row.retention_time;
+  const sn = row.signal_to_noise;
+  return {
+    id: numberValue(row.id, "row identity"),
+    mz: numberValue(row.mz, "m/z"),
+    intensity: numberValue(row.intensity, "intensity"),
+    signal_to_noise: sn === null ? null : numberValue(sn, "S/N"),
+    ...(rt === null ? {} : { retention_time: numberValue(rt, "retention time") }),
+  };
+}
+
+function measuredPeaks(peaks: readonly StoredSpectrumPeak[], maximum: number): MeasuredPeak[] {
+  const normalized = normalizeSpectrumPeaks(
+    peaks.map((peak) => ({ mz: peak.mz, int: peak.intensity })),
+    maximum,
+  );
+  return peaks.map((peak, index) => ({
+    ...peak,
+    relativeIntensity: normalized[index].relativeIntensity,
+  }));
+}
+
+function chartBins(request: SpectrumChartRequest): number {
+  const [minimum, maximum] = request.mzRange;
+  if (
+    request.mzRange.length !== 2 ||
+    !Number.isFinite(minimum) ||
+    !Number.isFinite(maximum) ||
+    minimum < 0 ||
+    maximum <= minimum ||
+    !Number.isFinite(maximum - minimum)
+  ) {
+    throw new RangeError("Chart m/z bounds must be finite, nonnegative, and increasing.");
+  }
+  if (!Number.isSafeInteger(request.binCount) || request.binCount < 1) {
+    throw new RangeError("Chart bin count must be a positive integer.");
+  }
+  return Math.min(request.binCount, MAX_RENDERED_SPECTRUM_PEAKS);
+}
+
+function tableOrder(request: SpectrumTableRequest, maximum: number): string {
+  if (
+    !Number.isSafeInteger(request.pageIndex) ||
+    request.pageIndex < 0 ||
+    !Number.isSafeInteger(request.pageSize) ||
+    request.pageSize < 1 ||
+    request.pageSize > 100 ||
+    !Number.isSafeInteger(request.pageIndex * request.pageSize)
+  ) {
+    throw new RangeError(
+      "Table page index must be nonnegative and page size must be between 1 and 100.",
+    );
+  }
+  const columns: Record<string, string> = {
+    id: "id",
+    mz: "mz",
+    intensity: "intensity",
+    relativeIntensity: maximum === 0 ? "(0.0::DOUBLE)" : `((intensity / ${maximum}::DOUBLE) * 100)`,
+    signal_to_noise: "signal_to_noise",
+    retention_time: "retention_time",
+  };
+  if (!Array.isArray(request.sorting)) throw new TypeError("Table sorting must be an array.");
+  const seen = new Set<string>();
+  const order = request.sorting.map((sort) => {
+    if (!Object.hasOwn(columns, sort.id) || typeof sort.desc !== "boolean" || seen.has(sort.id)) {
+      throw new TypeError(
+        "Table sorting must use unique supported measurement columns and boolean directions.",
+      );
+    }
+    seen.add(sort.id);
+    return `${columns[sort.id]} ${sort.desc ? "DESC" : "ASC"} NULLS LAST`;
+  });
+  // Missing values sort last in either direction; ties retain original row identity.
+  if (!seen.has("id")) order.push("id ASC");
+  return order.join(", ");
 }
 
 export function retentionTimePredicate(range?: RetentionTimeRange): string {
@@ -179,27 +299,99 @@ export async function openSpectrumDatabase(ingest: SpectrumIngestor): Promise<Sp
       ),
     );
     databaseMs += performance.now() - finalizationStartedAt;
+    let cachedSelection: { predicate: string; pending: Promise<SpectrumSelection> } | undefined;
+    async function querySelection(range?: RetentionTimeRange): Promise<SpectrumSelection> {
+      const predicate = retentionTimePredicate(range);
+      return run(() => {
+        if (cachedSelection?.predicate === predicate) return cachedSelection.pending;
+        const pending: Promise<SpectrumSelection> = (async () => {
+          const result = await run(() =>
+            connection.query(`
+            WITH stats AS (
+              SELECT count(*)::DOUBLE AS peak_count, min(mz) AS minimum_mz,
+                max(mz) AS maximum_mz, min(intensity) AS minimum_intensity,
+                max(intensity) AS maximum_intensity FROM peaks${predicate}
+            )
+            SELECT stats.*, base.*,
+              (SELECT count(*)::DOUBLE FROM peaks${predicate || " WHERE TRUE"}
+                AND intensity = stats.maximum_intensity) AS base_peak_count
+            FROM stats LEFT JOIN
+              (SELECT * FROM peaks${predicate} ORDER BY intensity DESC, id ASC LIMIT 1) base
+            ON TRUE
+          `),
+          );
+          const row = result.get(0);
+          if (!row) throw new Error("The spectrum database did not return selection statistics.");
+          const peakCount = numberValue(row.peak_count, "peak count");
+          if (peakCount === 0) return { peakCount };
+          const maximumIntensity = numberValue(row.maximum_intensity, "maximum intensity");
+          return {
+            peakCount,
+            summary: {
+              minimumMz: numberValue(row.minimum_mz, "minimum m/z"),
+              maximumMz: numberValue(row.maximum_mz, "maximum m/z"),
+              minimumIntensity: numberValue(row.minimum_intensity, "minimum intensity"),
+              maximumIntensity,
+              basePeak: measuredPeaks([storedPeak(row)], maximumIntensity)[0],
+              basePeakCount: numberValue(row.base_peak_count, "base peak count"),
+            },
+          };
+        })().catch((error: unknown) => {
+          if (cachedSelection?.pending === pending) cachedSelection = undefined;
+          throw error;
+        });
+        cachedSelection = { predicate, pending };
+        return pending;
+      });
+    }
     return {
       metadata,
       timings: { readMs, parseMs, databaseMs },
-      async queryPeaks(range) {
+      querySelection,
+      async queryChart(request, range) {
+        const bins = chartBins(request);
+        const [minimum, maximum] = request.mzRange;
         const predicate = retentionTimePredicate(range);
         const result = await run(() =>
-          connection.query(`SELECT * FROM peaks${predicate} ORDER BY id`),
+          connection.query(`
+          WITH bins AS (
+            SELECT arg_min(
+              struct_pack(id := id, mz := mz, intensity := intensity,
+                signal_to_noise := signal_to_noise, retention_time := retention_time),
+              struct_pack(strength := -intensity, identity := id)
+            ) AS winner, count(*)::DOUBLE AS bin_count
+            FROM peaks${predicate || " WHERE TRUE"}
+              AND mz BETWEEN ${minimum}::DOUBLE AND ${maximum}::DOUBLE
+            GROUP BY least(${bins - 1},
+              floor(((mz - ${minimum}::DOUBLE) / ${maximum - minimum}::DOUBLE) * ${bins}))
+          )
+          SELECT winner.id AS id, winner.mz AS mz, winner.intensity AS intensity,
+            winner.signal_to_noise AS signal_to_noise, winner.retention_time AS retention_time,
+            sum(bin_count) OVER ()::DOUBLE AS visible_count FROM bins ORDER BY winner.id
+        `),
         );
-        const rows: StoredSpectrumPeak[] = [];
-        for (const row of result) {
-          const rt: unknown = row.retention_time;
-          const sn: unknown = row.signal_to_noise;
-          rows.push({
-            id: numberValue(row.id, "row identity"),
-            mz: numberValue(row.mz, "m/z"),
-            intensity: numberValue(row.intensity, "intensity"),
-            signal_to_noise: sn === null ? null : numberValue(sn, "S/N"),
-            ...(rt === null ? {} : { retention_time: numberValue(rt, "retention time") }),
-          });
-        }
-        return rows;
+        if (result.numRows > bins) throw new Error("The chart query exceeded its bin budget.");
+        return {
+          peaks: Array.from(result, storedPeak),
+          visibleCount: result.numRows
+            ? numberValue(result.get(0)?.visible_count, "visible count")
+            : 0,
+        };
+      },
+      async queryTablePage(request, range) {
+        const selection = await querySelection(range);
+        const maximum = selection.summary?.maximumIntensity ?? 0;
+        const order = tableOrder(request, maximum);
+        const predicate = retentionTimePredicate(range);
+        const result = await run(() =>
+          connection.query(
+            `SELECT * FROM peaks${predicate} ORDER BY ${order} LIMIT ${request.pageSize}
+            OFFSET ${request.pageIndex * request.pageSize}`,
+          ),
+        );
+        if (result.numRows > request.pageSize)
+          throw new Error("The table query exceeded its page size.");
+        return measuredPeaks(Array.from(result, storedPeak), maximum);
       },
       dispose: database.dispose,
     };

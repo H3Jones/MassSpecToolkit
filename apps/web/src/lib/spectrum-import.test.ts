@@ -4,7 +4,9 @@ import type { SpectrumDataset } from "./spectrum";
 
 const source = {
   timings: { readMs: 0, parseMs: 0, databaseMs: 0 },
-  queryPeaks: async () => [],
+  querySelection: async () => ({ peakCount: 0 }),
+  queryTablePage: async () => [],
+  queryChart: async () => ({ peaks: [], visibleCount: 0 }),
   dispose: () => {},
 };
 
@@ -26,9 +28,16 @@ function dataset(id: string): SpectrumDataset {
     metadata,
     format: "Text",
     source: { ...source, metadata },
-    peaks: [peak],
-    chartPeaks: [{ mz: 43, int: 1 }],
-    summary: { minimumMz: 43, maximumMz: 43, basePeak: peak, basePeakCount: 1 },
+    firstPage: [peak],
+    peakCount: 1,
+    summary: {
+      minimumMz: 43,
+      maximumMz: 43,
+      minimumIntensity: 1,
+      maximumIntensity: 1,
+      basePeak: peak,
+      basePeakCount: 1,
+    },
   };
 }
 

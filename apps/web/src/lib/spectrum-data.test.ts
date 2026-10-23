@@ -24,7 +24,14 @@ const batch: SpectrumPeakColumns = {
 };
 let source: SpectrumDataSource;
 const consume = vi.fn(async (_batch: SpectrumPeakColumns) => {});
-const queryPeaks = vi.fn(async () => [{ id: 0, mz: 43, intensity: 1, signal_to_noise: null }]);
+const querySelection = vi.fn(async () => ({ peakCount: 1 }));
+const queryTablePage = vi.fn(async () => [
+  { id: 0, mz: 43, intensity: 1, signal_to_noise: null, relativeIntensity: 100 },
+]);
+const queryChart = vi.fn(async () => ({
+  peaks: [{ id: 0, mz: 43, intensity: 1, signal_to_noise: null }],
+  visibleCount: 1,
+}));
 const dispose = vi.fn();
 
 beforeEach(() => {
@@ -42,7 +49,9 @@ beforeEach(() => {
       maximumRetentionTime: null,
     },
     timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
-    queryPeaks,
+    querySelection,
+    queryTablePage,
+    queryChart,
     dispose,
   };
   mocks.ingestTxt.mockImplementation(async (_file, _spec, callback: typeof consume) => {
@@ -67,11 +76,19 @@ describe("worker-side spectrum coordination", () => {
     expect(consume).toHaveBeenCalledWith(batch);
     expect(mocks.terminateClient).toHaveBeenCalledOnce();
     expect(dispose).not.toHaveBeenCalled();
-    expect(await worker.queryPeaks([0, 0])).toHaveLength(1);
-    expect(queryPeaks).toHaveBeenCalledWith([0, 0]);
+    expect(await worker.querySelection([0, 0])).toEqual({ peakCount: 1 });
+    expect(querySelection).toHaveBeenCalledWith([0, 0]);
+    const chart = { mzRange: [0, 100] as const, binCount: 50 };
+    expect((await worker.queryChart(chart, [0, 0])).peaks).toHaveLength(1);
+    expect(queryChart).toHaveBeenCalledWith(chart, [0, 0]);
+    const page = { pageIndex: 0, pageSize: 10, sorting: [] };
+    expect(await worker.queryTablePage(page, [0, 0])).toHaveLength(1);
+    expect(queryTablePage).toHaveBeenCalledWith(page, [0, 0]);
     await worker.dispose();
     expect(dispose).toHaveBeenCalledOnce();
-    await expect(worker.queryPeaks()).rejects.toThrow("not open");
+    await expect(worker.querySelection()).rejects.toThrow("not open");
+    await expect(worker.queryChart(chart)).rejects.toThrow("not open");
+    await expect(worker.queryTablePage(page)).rejects.toThrow("not open");
     await expect(worker.importFile(file)).rejects.toThrow("closed");
   });
 
@@ -91,7 +108,7 @@ describe("worker-side spectrum coordination", () => {
       "line 2: invalid peak",
     );
     expect(mocks.terminateClient).toHaveBeenCalledOnce();
-    await expect(worker.queryPeaks()).rejects.toThrow("not open");
+    await expect(worker.querySelection()).rejects.toThrow("not open");
     await worker.dispose();
   });
 

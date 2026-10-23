@@ -4,7 +4,9 @@ import { openSpectrumFile } from "./spectrum-worker-client";
 
 const remote = vi.hoisted(() => ({
   importFile: vi.fn(),
-  queryPeaks: vi.fn(),
+  querySelection: vi.fn(),
+  queryChart: vi.fn(),
+  queryTablePage: vi.fn(),
   dispose: vi.fn(),
 }));
 vi.mock("comlink", () => ({ wrap: () => remote }));
@@ -35,7 +37,9 @@ beforeEach(() => {
     metadata,
     timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
   });
-  remote.queryPeaks.mockReset().mockResolvedValue(rows);
+  remote.querySelection.mockReset().mockResolvedValue({ peakCount: 1 });
+  remote.queryChart.mockReset().mockResolvedValue({ peaks: rows, visibleCount: 1 });
+  remote.queryTablePage.mockReset().mockResolvedValue(rows);
   remote.dispose.mockReset().mockResolvedValue(undefined);
   TestWorker.instances = [];
   vi.stubGlobal("Worker", TestWorker);
@@ -50,9 +54,17 @@ describe("spectrum data worker client", () => {
     expect(remote.importFile).toHaveBeenCalledWith(file, undefined);
     expect(read).not.toHaveBeenCalled();
     expect(source.metadata).toEqual(metadata);
-    expect(remote.queryPeaks).not.toHaveBeenCalled();
-    expect(await source.queryPeaks([0, 0])).toEqual(rows);
-    expect(remote.queryPeaks).toHaveBeenCalledWith([0, 0]);
+    expect(remote.querySelection).not.toHaveBeenCalled();
+    expect(remote.queryChart).not.toHaveBeenCalled();
+    expect(remote.queryTablePage).not.toHaveBeenCalled();
+    expect(await source.querySelection([0, 0])).toEqual({ peakCount: 1 });
+    expect(remote.querySelection).toHaveBeenCalledWith([0, 0]);
+    const chart = { mzRange: [0, 100] as const, binCount: 50 };
+    expect(await source.queryChart(chart, [0, 0])).toEqual({ peaks: rows, visibleCount: 1 });
+    expect(remote.queryChart).toHaveBeenCalledWith(chart, [0, 0]);
+    const page = { pageIndex: 0, pageSize: 10, sorting: [{ id: "mz", desc: false }] };
+    expect(await source.queryTablePage(page, [0, 0])).toEqual(rows);
+    expect(remote.queryTablePage).toHaveBeenCalledWith(page, [0, 0]);
     source.dispose();
   });
 
@@ -62,9 +74,9 @@ describe("spectrum data worker client", () => {
       finishCleanup = resolve;
     });
     remote.dispose.mockReturnValue(cleanup);
-    remote.queryPeaks.mockReturnValue(new Promise(() => {}));
+    remote.querySelection.mockReturnValue(new Promise(() => {}));
     const source = await openSpectrumFile(new File([""], "spectrum.asc"));
-    const pending = source.queryPeaks();
+    const pending = source.querySelection();
     const rejected = expect(pending).rejects.toThrow("closed");
     source.dispose();
     source.dispose();
@@ -74,7 +86,7 @@ describe("spectrum data worker client", () => {
     finishCleanup();
     await cleanup;
     expect(TestWorker.instances[0].terminate).toHaveBeenCalledOnce();
-    await expect(source.queryPeaks()).rejects.toThrow("closed");
+    await expect(source.querySelection()).rejects.toThrow("closed");
   });
 
   it.each(["error", "messageerror"])(
@@ -93,13 +105,13 @@ describe("spectrum data worker client", () => {
   );
 
   it("rejects pending and subsequent queries after a crash", async () => {
-    remote.queryPeaks.mockReturnValue(new Promise(() => {}));
+    remote.querySelection.mockReturnValue(new Promise(() => {}));
     const source = await openSpectrumFile(new File([""], "spectrum.asc"));
-    const pending = source.queryPeaks();
+    const pending = source.querySelection();
     const rejected = expect(pending).rejects.toThrow("stopped unexpectedly");
     TestWorker.instances[0].dispatchEvent(new Event("error"));
     await rejected;
-    await expect(source.queryPeaks()).rejects.toThrow("stopped unexpectedly");
+    await expect(source.querySelection()).rejects.toThrow("stopped unexpectedly");
     source.dispose();
     expect(TestWorker.instances[0].terminate).toHaveBeenCalledOnce();
   });

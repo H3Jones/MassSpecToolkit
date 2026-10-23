@@ -11,6 +11,7 @@ import {
   createSpectrumSeriesData,
   createSpectrumViewportUpdate,
   selectSpectrumPeaks,
+  createPreparedMassSpectrumChart,
 } from "../src/charts/mass-spectrum.ts";
 
 const charts: EChartsType[] = [];
@@ -27,6 +28,99 @@ function render(option: MassSpectrumChartOption, width = 640) {
 }
 
 describe("spectrum normalization", () => {
+  it.each(["relative", "absolute"] as const)(
+    "keeps %s axes zoomable before samples arrive and in empty viewports",
+    (intensityMode) => {
+      const prepared = createPreparedMassSpectrumChart([], {
+        mzDomain: [0, 250],
+        intensityMode,
+        intensityExtent: [0, 1000],
+      });
+      const chart = render(prepared.option);
+      expect(chart.getOption().dataZoom).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "mz-inside", startValue: 0, endValue: 250 }),
+        ]),
+      );
+      chart.dispatchAction({
+        type: "dataZoom",
+        dataZoomId: "mz-inside",
+        startValue: 150,
+        endValue: 200,
+      });
+      expect(chart.getOption().dataZoom).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "mz-inside", startValue: 150, endValue: 200 }),
+        ]),
+      );
+      chart.dispatchAction({ type: "restore" });
+      expect(chart.getOption().dataZoom).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "mz-inside", startValue: 0, endValue: 250 }),
+        ]),
+      );
+    },
+  );
+
+  it("normalizes viewport samples against the full selection rather than their own maximum", () => {
+    expect(normalizeSpectrumPeaks([{ mz: 43, int: 100 }], 1000)[0].relativeIntensity).toBe(10);
+    expect(
+      normalizeSpectrumPeaks([{ mz: 43, int: Number.MIN_VALUE }], Number.MAX_VALUE)[0]
+        .relativeIntensity,
+    ).toBe(0);
+    expect(normalizeSpectrumPeaks([], 0)).toEqual([]);
+    for (const maximum of [-1, 99, NaN, Infinity]) {
+      expect(() => normalizeSpectrumPeaks([{ mz: 43, int: 100 }], maximum)).toThrow("base peak");
+    }
+  });
+
+  it("retains full-selection absolute extents and does not re-bin remote samples", () => {
+    const data = normalizeSpectrumPeaks(
+      [
+        { mz: 250 / 783 - 0.000001, int: 10 },
+        { mz: 250 / 783 + 0.000001, int: 20 },
+      ],
+      1000,
+    );
+    const prepared = createPreparedMassSpectrumChart(
+      data,
+      {
+        intensityMode: "absolute",
+        intensityExtent: [0, 1000],
+        mzDomain: [0, 250],
+      },
+      { indices: [0, 1], visibleCount: 30_000 },
+    );
+    expect(prepared.selection).toEqual({ indices: [0, 1], visibleCount: 30_000 });
+    expect(prepared.option.series).toMatchObject([
+      { id: "peaks", data: [{ int: 10 }, { int: 20 }] },
+      {
+        id: "intensity-extent",
+        data: [
+          [0, 0],
+          [0, 1000],
+        ],
+      },
+    ]);
+    const empty = createPreparedMassSpectrumChart([], {
+      intensityMode: "absolute",
+      intensityExtent: [0, 1000],
+      mzDomain: [0, 250],
+    });
+    expect(empty.option.series).toMatchObject([
+      { data: [] },
+      {
+        data: [
+          [0, 0],
+          [0, 1000],
+        ],
+      },
+    ]);
+    expect(() => createPreparedMassSpectrumChart(data, { intensityExtent: [0, 19] })).toThrow(
+      "intensity bounds",
+    );
+  });
+
   it("normalizes to a 100% base peak without sorting or modifying input", () => {
     const peaks = Object.freeze([
       Object.freeze({ mz: 57, int: 250 }),

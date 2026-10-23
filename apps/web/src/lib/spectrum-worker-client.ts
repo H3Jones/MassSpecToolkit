@@ -63,7 +63,9 @@ export async function openSpectrumFile(file: File, spec?: TxtFormat): Promise<Sp
     const imported = await run(() => remote.importFile(file, spec));
     return {
       ...imported,
-      queryPeaks: (range) => run(() => remote.queryPeaks(range)),
+      querySelection: (range) => run(() => remote.querySelection(range)),
+      queryChart: (request, range) => run(() => remote.queryChart(request, range)),
+      queryTablePage: (request, range) => run(() => remote.queryTablePage(request, range)),
       dispose,
     };
   } catch (error) {

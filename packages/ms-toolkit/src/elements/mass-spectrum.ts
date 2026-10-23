@@ -18,6 +18,8 @@ import {
 import {
   createPreparedMassSpectrumChart,
   createSpectrumViewportUpdate,
+  createSpectrumTooltipFormatter,
+  getAutomaticMzDomain,
   getSpectrumIntensityMode,
   MAX_RENDERED_SPECTRUM_PEAKS,
   selectSpectrumPeaks,
@@ -55,12 +57,31 @@ template.innerHTML = `
   <p class="sr-only" part="peak-announcement" role="status" aria-live="polite"></p>
 `;
 
+export interface SpectrumViewportRequest {
+  readonly mzRange: readonly [number, number];
+  readonly binCount: number;
+}
+
+/** Return one strongest peak per requested bin, in source order; ties retain the first row. */
+export interface SpectrumViewportSource {
+  readonly peakCount: number;
+  readonly maximumMz: number;
+  readonly minimumIntensity: number;
+  readonly maximumIntensity: number;
+  query(request: SpectrumViewportRequest): Promise<{
+    readonly peaks: readonly SpectrumPeak[];
+    readonly visibleCount: number;
+  }>;
+}
+
 /**
  * `<ms-mass-spectrum chart-title="Mass spectrum" height="360">`
  * Assign centroid peaks to `data`. The default intensity-mode="relative" uses a
  * 100% base peak; intensity-mode="absolute" displays original intensity values.
  * Only the strongest visible peaks are rendered; the full dataset is retained.
  * Rendering errors dispatch `ms-error` (detail: Error).
+ * Set `viewportSource` instead of `data` for bounded asynchronous viewport queries.
+ * Successful remote queries dispatch `ms-viewport-loaded`; stale results are ignored.
  */
 export class MsMassSpectrum extends HTMLElement {
   static observedAttributes = [
@@ -97,6 +118,41 @@ export class MsMassSpectrum extends HTMLElement {
     preparationMs?: number;
   };
   #selectionFrame?: number;
+  #viewportSource?: SpectrumViewportSource;
+  #viewportRun = 0;
+  #viewportLoading = false;
+  #lastViewport?: string;
+
+  get viewportSource(): SpectrumViewportSource | undefined {
+    return this.#viewportSource;
+  }
+
+  set viewportSource(source: SpectrumViewportSource | undefined) {
+    if (
+      source &&
+      (!Number.isSafeInteger(source.peakCount) ||
+        source.peakCount < 0 ||
+        !Number.isFinite(source.maximumMz) ||
+        source.maximumMz < 0 ||
+        !Number.isFinite(source.minimumIntensity) ||
+        source.minimumIntensity < 0 ||
+        !Number.isFinite(source.maximumIntensity) ||
+        source.maximumIntensity < source.minimumIntensity ||
+        typeof source.query !== "function")
+    ) {
+      throw new TypeError(
+        "A spectrum viewport source must provide finite bounds, a peak count, and a query function.",
+      );
+    }
+    ++this.#viewportRun;
+    this.#viewportSource = source;
+    this.#lastViewport = undefined;
+    this.#data = [];
+    this.#selection = { indices: [], visibleCount: 0 };
+    this.#zoomDomain = undefined;
+    this.#activePeak = -1;
+    if (this.isConnected && this.shadowRoot) this.#render();
+  }
 
   get data(): readonly SpectrumPeak[] {
     return copySpectrumPeaks(this.#data);
@@ -105,6 +161,9 @@ export class MsMassSpectrum extends HTMLElement {
   /** Invalid data throws before replacing the current spectrum. */
   set data(peaks: readonly SpectrumPeak[]) {
     this.#data = normalizeSpectrumPeaks(peaks);
+    ++this.#viewportRun;
+    this.#viewportSource = undefined;
+    this.#lastViewport = undefined;
     this.#zoomDomain = undefined;
     this.#activePeak = -1;
     if (this.isConnected && this.shadowRoot) this.#render();
@@ -125,13 +184,17 @@ export class MsMassSpectrum extends HTMLElement {
       this.#announcement = root.querySelector<HTMLElement>("[part=peak-announcement]")!;
     }
     // Preserve data assigned before the custom element was registered.
-    if (Object.prototype.hasOwnProperty.call(this, "data")) {
-      const peaks = this.data;
+    const ownData = Object.prototype.hasOwnProperty.call(this, "data");
+    const ownSource = Object.prototype.hasOwnProperty.call(this, "viewportSource");
+    const peaks = ownData ? this.data : undefined;
+    const source = ownSource ? this.viewportSource : undefined;
+    if (ownData) {
       Reflect.deleteProperty(this, "data");
-      this.data = peaks;
-      return;
     }
-    this.#render();
+    if (ownSource) Reflect.deleteProperty(this, "viewportSource");
+    if (peaks !== undefined) this.data = peaks;
+    if (ownSource) this.viewportSource = source;
+    if (!ownData && !ownSource) this.#render();
   }
 
   disconnectedCallback(): void {
@@ -179,20 +242,27 @@ export class MsMassSpectrum extends HTMLElement {
         this.getAttribute("intensity-mode") ?? undefined,
       );
       const preparationStartedAt = performance.now();
-      const prepared = createPreparedMassSpectrumChart(this.#data, {
-        color: this.getAttribute("color") ?? getComputedStyle(this).color,
-        textColor: getComputedStyle(this).color,
-        intensityMode,
-        labels: labelsAttribute !== "false",
-        mzDomain,
-        zoomDomain: this.#zoomDomain,
-        xLabel: this.getAttribute("x-label") ?? undefined,
-      });
+      const source = this.#viewportSource;
+      mzDomain ??= source ? getAutomaticMzDomain([{ mz: source.maximumMz, int: 0 }]) : undefined;
+      const prepared = createPreparedMassSpectrumChart(
+        this.#data,
+        {
+          color: this.getAttribute("color") ?? getComputedStyle(this).color,
+          textColor: getComputedStyle(this).color,
+          intensityMode,
+          labels: labelsAttribute !== "false",
+          mzDomain,
+          zoomDomain: this.#zoomDomain,
+          xLabel: this.getAttribute("x-label") ?? undefined,
+          intensityExtent: source ? [source.minimumIntensity, source.maximumIntensity] : undefined,
+        },
+        source ? this.#selection : undefined,
+      );
       const preparationMs = Math.round((performance.now() - preparationStartedAt) * 100) / 100;
       const definition = prepared.option;
       this.#selection = prepared.selection;
       this.#intensityMode = intensityMode;
-      if (this.#data.length === 0) {
+      if (this.#data.length === 0 && !source?.peakCount) {
         this.#updatePresentation();
         this.#dispose();
         this.#defaultMzDomain = undefined;
@@ -214,7 +284,10 @@ export class MsMassSpectrum extends HTMLElement {
         });
         this.#host.on("finished", () => this.#logRenderCompletion());
         this.#host.on("datazoom", () => this.#syncZoom());
-        this.#host.on("restore", () => this.#syncZoom());
+        this.#host.on("restore", () => {
+          this.#lastViewport = undefined;
+          this.#setZoom(this.#defaultMzDomain);
+        });
         this.#resizeObserver = new ResizeObserver(() => {
           if (this.#container.clientWidth > 0) {
             this.#host?.resize({ width: this.#container.clientWidth });
@@ -226,7 +299,7 @@ export class MsMassSpectrum extends HTMLElement {
       this.#pendingRender = {
         startedAt: renderStartedAt,
         phase: initialRender ? "initial" : "update",
-        peakCount: this.#data.length,
+        peakCount: source?.peakCount ?? this.#data.length,
         visiblePeakCount: prepared.selection.visibleCount,
         renderedPeakCount: prepared.selection.indices.length,
         preparationMs,
@@ -258,7 +331,7 @@ export class MsMassSpectrum extends HTMLElement {
       this.#intensityMode === "absolute"
         ? "Absolute intensities in the original input units."
         : "Intensities normalized to the dataset's base peak at 100%.";
-    const description = `${this.#data.length} peaks. ${showing} ${intensityDescription} Use the mouse wheel or pinch to zoom the m/z axis, Shift+wheel or the vertical range slider to zoom intensity, the area zoom tool to select an m/z and intensity section, drag or the m/z range slider to pan, plus and minus to zoom m/z, Home or the restore control to reset both axes, and arrow keys to inspect displayed peaks.`;
+    const description = `${this.#viewportSource?.peakCount ?? this.#data.length} peaks. ${showing} ${intensityDescription} Use the mouse wheel or pinch to zoom the m/z axis, Shift+wheel or the vertical range slider to zoom intensity, the area zoom tool to select an m/z and intensity section, drag or the m/z range slider to pan, plus and minus to zoom m/z, Home or the restore control to reset both axes, and arrow keys to inspect displayed peaks.`;
     const label = `${this.#chartTitle}. ${description}`;
     this.#container.setAttribute("aria-label", label);
     this.#container.setAttribute("aria-description", description);
@@ -284,6 +357,10 @@ export class MsMassSpectrum extends HTMLElement {
   }
 
   #dispose(): void {
+    ++this.#viewportRun;
+    this.#lastViewport = undefined;
+    this.#viewportLoading = false;
+    this.#container.removeAttribute("aria-busy");
     if (this.#selectionFrame !== undefined) cancelAnimationFrame(this.#selectionFrame);
     this.#selectionFrame = undefined;
     this.#pendingRender = undefined;
@@ -327,17 +404,108 @@ export class MsMassSpectrum extends HTMLElement {
 
   #updateSelection(): void {
     if (!this.#host || !this.#zoomDomain) return;
+    const binCount = this.#binCount();
+    if (this.#viewportSource) {
+      const key = `${this.#zoomDomain[0]},${this.#zoomDomain[1]},${binCount}`;
+      if (key !== this.#lastViewport) {
+        this.#lastViewport = key;
+        void this.#loadViewport(this.#viewportSource, this.#zoomDomain, binCount);
+      }
+      return;
+    }
+    const selection = selectSpectrumPeaks(this.#data, this.#zoomDomain, binCount);
+    this.#applySelection(selection);
+  }
+
+  #binCount(): number {
+    if (!this.#host || !this.#zoomDomain) return MAX_RENDERED_SPECTRUM_PEAKS;
     const startPixel = this.#host.convertToPixel({ xAxisIndex: 0 }, this.#zoomDomain[0]);
     const endPixel = this.#host.convertToPixel({ xAxisIndex: 0 }, this.#zoomDomain[1]);
     const pixelWidth = Math.abs(endPixel - startPixel);
-    const binCount = Number.isFinite(pixelWidth)
+    return Number.isFinite(pixelWidth)
       ? Math.max(1, Math.min(MAX_RENDERED_SPECTRUM_PEAKS, Math.floor(pixelWidth)))
       : MAX_RENDERED_SPECTRUM_PEAKS;
-    const selection = selectSpectrumPeaks(this.#data, this.#zoomDomain, binCount);
+  }
+
+  async #loadViewport(
+    source: SpectrumViewportSource,
+    domain: readonly [number, number],
+    binCount: number,
+  ) {
+    const current = ++this.#viewportRun;
+    this.#viewportLoading = true;
+    this.#container.setAttribute("aria-busy", "true");
+    this.#status.className = "status";
+    this.#status.textContent = "Loading spectrum viewport...";
+    this.#status.hidden = false;
+    try {
+      const result = await source.query({ mzRange: domain, binCount });
+      if (
+        current !== this.#viewportRun ||
+        !this.#host ||
+        domain[0] !== this.#zoomDomain?.[0] ||
+        domain[1] !== this.#zoomDomain?.[1] ||
+        binCount !== this.#binCount()
+      )
+        return;
+      if (
+        !Number.isSafeInteger(result.visibleCount) ||
+        result.visibleCount < result.peaks.length ||
+        result.visibleCount > source.peakCount ||
+        result.peaks.length > binCount
+      ) {
+        throw new Error(
+          "The spectrum viewport query returned invalid counts or exceeded its bin budget.",
+        );
+      }
+      const data = normalizeSpectrumPeaks(result.peaks, source.maximumIntensity);
+      const occupied = new Set<number>();
+      for (const peak of data) {
+        const bin = Math.min(
+          binCount - 1,
+          Math.floor(((peak.mz - domain[0]) / (domain[1] - domain[0])) * binCount),
+        );
+        if (
+          peak.mz < domain[0] ||
+          peak.mz > domain[1] ||
+          peak.int < source.minimumIntensity ||
+          occupied.has(bin)
+        ) {
+          throw new Error(
+            "Spectrum viewport peaks must be within the requested range, with at most one per bin.",
+          );
+        }
+        occupied.add(bin);
+      }
+      this.#data = data;
+      this.#applySelection(
+        { indices: data.map((_, index) => index), visibleCount: result.visibleCount },
+        true,
+      );
+      this.dispatchEvent(new CustomEvent("ms-viewport-loaded", { bubbles: true }));
+    } catch (error) {
+      if (current !== this.#viewportRun) return;
+      this.#lastViewport = undefined;
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.#status.className = "status error";
+      this.#status.textContent = `Could not load this spectrum viewport: ${err.message}`;
+      this.#status.hidden = false;
+      this.dispatchEvent(new CustomEvent("ms-error", { detail: err, bubbles: true }));
+    } finally {
+      if (current === this.#viewportRun) {
+        this.#viewportLoading = false;
+        this.#container.removeAttribute("aria-busy");
+      }
+    }
+  }
+
+  #applySelection(selection: SpectrumPeakSelection, replaceData = false): void {
+    if (!this.#host || !this.#zoomDomain) return;
     const sameIndices =
       selection.indices.length === this.#selection.indices.length &&
       selection.indices.every((index, position) => index === this.#selection.indices[position]);
-    if (sameIndices && selection.visibleCount === this.#selection.visibleCount) return;
+    if (!replaceData && sameIndices && selection.visibleCount === this.#selection.visibleCount)
+      return;
     this.#selection = selection;
     this.#activePeak = -1;
     this.#announcement.textContent = "";
@@ -346,7 +514,7 @@ export class MsMassSpectrum extends HTMLElement {
     this.#pendingRender = {
       startedAt: renderStartedAt,
       phase: "viewport",
-      peakCount: this.#data.length,
+      peakCount: this.#viewportSource?.peakCount ?? this.#data.length,
       visiblePeakCount: selection.visibleCount,
       renderedPeakCount: selection.indices.length,
     };
@@ -359,6 +527,13 @@ export class MsMassSpectrum extends HTMLElement {
           this.#zoomDomain,
         ),
         aria: this.#updatePresentation(),
+        tooltip: {
+          formatter: createSpectrumTooltipFormatter(
+            this.#data,
+            this.getAttribute("x-label") ?? "m/z",
+            this.#intensityMode,
+          ),
+        },
       },
       { silent: true },
     );
@@ -399,6 +574,10 @@ export class MsMassSpectrum extends HTMLElement {
         }
       }
       const visible = this.#selection.indices;
+      if (this.#viewportSource && this.#viewportLoading) {
+        event.preventDefault();
+        return;
+      }
       if (!visible.length) return;
       const direction = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : 1;
       const position = visible.indexOf(this.#activePeak);

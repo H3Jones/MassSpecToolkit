@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SpectrumMetadata, SpectrumPeakResult, TxtFormat } from "ms-toolkit/core";
 import { readSpectrumFile } from "./spectrum";
 import { openSpectrumFile } from "./spectrum-worker-client";
+import type { RetentionTimeRange, SpectrumSelection } from "./spectrum-database";
 
 vi.mock("./spectrum-worker-client", () => ({ openSpectrumFile: vi.fn() }));
 
@@ -21,10 +22,48 @@ function mockParsedPeaks(peaks: readonly SpectrumPeakResult[]) {
       minimumRetentionTime: retentionTimes.length ? Math.min(...retentionTimes) : null,
       maximumRetentionTime: retentionTimes.length ? Math.max(...retentionTimes) : null,
     };
+    function selected(range?: RetentionTimeRange) {
+      return peaks
+        .map((peak, id) => ({ ...peak, id }))
+        .filter(
+          (peak) =>
+            !range ||
+            (peak.retention_time !== undefined &&
+              peak.retention_time >= range[0] &&
+              peak.retention_time <= range[1]),
+        );
+    }
+    function selection(range?: RetentionTimeRange): SpectrumSelection {
+      const rows = selected(range);
+      if (!rows.length) return { peakCount: 0 };
+      const maximum = Math.max(...rows.map((peak) => peak.intensity));
+      const base = rows.find((peak) => peak.intensity === maximum)!;
+      return {
+        peakCount: rows.length,
+        summary: {
+          minimumMz: Math.min(...rows.map((peak) => peak.mz)),
+          maximumMz: Math.max(...rows.map((peak) => peak.mz)),
+          minimumIntensity: Math.min(...rows.map((peak) => peak.intensity)),
+          maximumIntensity: maximum,
+          basePeak: { ...base, relativeIntensity: maximum === 0 ? 0 : 100 },
+          basePeakCount: rows.filter((peak) => peak.intensity === maximum).length,
+        },
+      };
+    }
     return {
       metadata,
       timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
-      queryPeaks: async () => peaks.map((peak, id) => ({ ...peak, id })),
+      querySelection: vi.fn(async (range) => selection(range)),
+      queryChart: vi.fn(async () => ({ peaks: [], visibleCount: 0 })),
+      queryTablePage: vi.fn(async (request, range) => {
+        const maximum = selection(range).summary?.maximumIntensity ?? 0;
+        return selected(range)
+          .slice(request.pageIndex * request.pageSize, (request.pageIndex + 1) * request.pageSize)
+          .map((peak) => ({
+            ...peak,
+            relativeIntensity: maximum === 0 ? 0 : (peak.intensity / maximum) * 100,
+          }));
+      }),
       dispose: vi.fn(),
     };
   });
@@ -76,17 +115,17 @@ describe("spectrum imports", () => {
     expect(dataset).toMatchObject({
       metadata: { filename: "example.ASC", type: "Direct" },
       format: "Text",
-      peaks: [
+      firstPage: [
         { id: 0, mz: 57, intensity: 250, relativeIntensity: 25, signal_to_noise: null },
         { id: 1, mz: 43, intensity: 1000, relativeIntensity: 100, signal_to_noise: null },
         { id: 2, mz: 57, intensity: 500, relativeIntensity: 50, signal_to_noise: null },
       ],
       summary: { minimumMz: 43, maximumMz: 57, basePeak: { id: 1 }, basePeakCount: 1 },
     });
-    const original = dataset.peaks.map((peak) => ({ ...peak }));
-    const sorted = [...dataset.peaks].sort((a, b) => a.mz - b.mz);
+    const original = dataset.firstPage.map((peak) => ({ ...peak }));
+    const sorted = [...dataset.firstPage].sort((a, b) => a.mz - b.mz);
     expect(sorted.map((peak) => peak.id)).toEqual([1, 0, 2]);
-    expect(dataset.peaks).toEqual(original);
+    expect(dataset.firstPage).toEqual(original);
     expect((await readSpectrumFile(file)).id).not.toBe(dataset.id);
     for (const extension of ["TXT", "CSV", "TSV"]) {
       const textFile = new File(["57 250"], `example.${extension}`);
@@ -114,7 +153,7 @@ describe("spectrum imports", () => {
       ]);
       const dataset = await readSpectrumFile(new File([""], "tied.asc"));
       expect(dataset.summary).toMatchObject({ basePeak: { id: 0 }, basePeakCount: 2 });
-      expect(dataset.peaks.map((peak) => peak.relativeIntensity)).toEqual(
+      expect(dataset.firstPage.map((peak) => peak.relativeIntensity)).toEqual(
         intensity === 0 ? [0, 0] : [100, 100],
       );
     },
@@ -125,7 +164,7 @@ describe("spectrum imports", () => {
     async (intensity) => {
       mockParsedPeaks([{ mz: 43, intensity, signal_to_noise: 0 }]);
       const dataset = await readSpectrumFile(new File([""], "extreme.asc"));
-      expect(dataset.peaks[0].relativeIntensity).toBe(100);
+      expect(dataset.firstPage[0].relativeIntensity).toBe(100);
     },
   );
 
@@ -147,32 +186,16 @@ describe("spectrum imports", () => {
       { mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
       { mz: 57, intensity: 200, signal_to_noise: null, retention_time: 2.5 },
     ]);
-    const queryPeaks = vi
-      .fn()
-      .mockResolvedValue([
-        { id: 0, mz: 43, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
-      ]);
-    vi.mocked(openSpectrumFile).mockResolvedValue({
-      timings: { readMs: 1, parseMs: 2, databaseMs: 3 },
-      metadata: {
-        filename: "gc.csv",
-        type: "Hyphenated",
-        peakCount: 2,
-        minimumMz: 43,
-        maximumMz: 57,
-        minimumIntensity: 100,
-        maximumIntensity: 200,
-        minimumRetentionTime: 2.4,
-        maximumRetentionTime: 2.5,
-      },
-      queryPeaks,
-      dispose: vi.fn(),
-    });
     const file = new File([""], "gc.csv");
     const dataset = await readSpectrumFile(file);
-    expect(queryPeaks).toHaveBeenCalledWith([2.4, 2.4]);
+    expect(vi.mocked(dataset.source.querySelection)).toHaveBeenCalledWith([2.4, 2.4]);
+    expect(vi.mocked(dataset.source.queryTablePage)).toHaveBeenCalledWith(
+      { pageIndex: 0, pageSize: 10, sorting: [] },
+      [2.4, 2.4],
+    );
     expect(dataset.retentionTimeRange).toEqual([2.4, 2.4]);
-    expect(dataset.peaks).toHaveLength(1);
+    expect(dataset.firstPage).toHaveLength(1);
+    expect(dataset.peakCount).toBe(1);
     expect(dataset.metadata.peakCount).toBe(2);
     expect(dataset.metadata).toBe(dataset.source.metadata);
     expect(openSpectrumFile).toHaveBeenCalledWith(file, undefined);
@@ -198,13 +221,33 @@ describe("spectrum imports", () => {
         minimumRetentionTime: null,
         maximumRetentionTime: null,
       },
-      queryPeaks: async () => {
+      querySelection: async () => {
         throw new Error("Query failed");
       },
+      queryTablePage: async () => [],
+      queryChart: async () => ({ peaks: [], visibleCount: 0 }),
       dispose,
     });
     await expect(readSpectrumFile(new File([""], "db.asc"))).rejects.toThrow("Query failed");
     expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("retains only aggregates and the first ten rows for large selections", async () => {
+    mockParsedPeaks(
+      Array.from({ length: 30_000 }, (_, id) => ({
+        mz: 43 + id / 1000,
+        intensity: id,
+        signal_to_noise: null,
+      })),
+    );
+    const dataset = await readSpectrumFile(new File([""], "large.asc"));
+    expect(dataset.peakCount).toBe(30_000);
+    expect(dataset.firstPage).toHaveLength(10);
+    expect(dataset.summary?.basePeak.id).toBe(29_999);
+    expect(dataset.firstPage[9].relativeIntensity).toBe((9 / 29_999) * 100);
+    expect(vi.mocked(dataset.source.queryChart)).not.toHaveBeenCalled();
+    expect(dataset).not.toHaveProperty("peaks");
+    expect(dataset).not.toHaveProperty("chartPeaks");
   });
 
   it("starts at RT zero for Hyphenated metadata", async () => {

@@ -78,10 +78,11 @@ reusing the toolkit's WASM reader, chart, and table. Files are read in the Rust
 worker, which transfers bounded columnar batches with insertion backpressure.
 DuckDB's single-threaded worker and WASM
 assets are bundled locally, without cross-origin isolation requirements or CDN
-requests. Parsing still materializes the full input inside a worker, and wide RT
-queries still materialize their results. RT queries preserve
-individual measurements, not summed or tolerance-binned spectra. Persistence,
-streaming ingestion, and viewport SQL queries are not implemented yet.
+requests. Separate queries return selection summaries, width-bounded strongest-peak
+chart samples, and database-sorted table pages of at most 100 rows. All original
+measurements stay in DuckDB; RT filters do not sum or tolerance-bin spectra.
+Parsing still materializes the full input inside a worker. Persistence and
+streaming ingestion are not implemented yet.
 No imported data is sent to a server.
 
 The local `ms-toolkit` dependency is aliased to its TypeScript source in the
