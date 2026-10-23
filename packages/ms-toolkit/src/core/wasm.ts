@@ -3,7 +3,8 @@ import init, {
   evaluate_ion,
   fine_isotope_distribution,
   mass_split,
-  parse_asc,
+  guess_txt_format,
+  parse_txt,
   parse_formula,
   parse_element_ranges,
 } from "../generated/wasm/ms_wasm.js";
@@ -16,6 +17,7 @@ import type {
   MassSplitResult,
   MassToleranceUnit,
   PeakAssignmentResult,
+  TxtFormat,
 } from "./types.ts";
 
 let ready: Promise<unknown> | undefined;
@@ -31,10 +33,19 @@ function toError(error: unknown): Error {
 
 /** Typed wrapper around the wasm module. Initialises it lazily on first use. */
 export const api = {
-  async parseAsc(input: string): Promise<MassSpectrumResult> {
+  async guessTxtFormat(input: string): Promise<TxtFormat> {
     await ensureInit();
     try {
-      return parse_asc(input);
+      return guess_txt_format(input);
+    } catch (error) {
+      throw toError(error);
+    }
+  },
+
+  async parseTxt(input: string, spec?: TxtFormat): Promise<MassSpectrumResult> {
+    await ensureInit();
+    try {
+      return parse_txt(input, spec);
     } catch (error) {
       throw toError(error);
     }

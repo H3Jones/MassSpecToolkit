@@ -1,15 +1,20 @@
-import { callClient, type MassSpectrumResult, type SpectrumPeakResult } from "ms-toolkit/core";
+import {
+  callClient,
+  type MassSpectrumResult,
+  type SpectrumPeakResult,
+  type TxtFormat,
+} from "ms-toolkit/core";
 import { normalizeSpectrumPeaks, type SpectrumPeak } from "ms-toolkit/charts";
 
 export const spectrumReaders = [
   {
-    id: "asc",
-    name: "ASC",
-    extensions: [".asc"],
+    id: "txt",
+    name: "Text",
+    extensions: [".txt", ".asc", ".csv", ".tsv"],
     description:
-      "Headerless text with three whitespace-separated columns: m/z, intensity, and signal-to-noise.",
-    parse: (text: string): Promise<MassSpectrumResult> =>
-      callClient((client) => client.parseAsc(text)),
+      "Unquoted text (.txt, .asc, .csv, .tsv) with whitespace, tab, comma, semicolon, or pipe separators. Headers are detected; headerless data uses the first two columns for m/z and intensity. S/N requires a recognized header or an explicit column mapping.",
+    parse: (text: string, spec?: TxtFormat): Promise<MassSpectrumResult> =>
+      callClient((client) => client.parseTxt(text, spec)),
   },
 ] as const;
 
@@ -32,14 +37,14 @@ export interface SpectrumDataset {
   };
 }
 
-export async function readSpectrumFile(file: File): Promise<SpectrumDataset> {
+export async function readSpectrumFile(file: File, spec?: TxtFormat): Promise<SpectrumDataset> {
   const reader = spectrumReaders.find((candidate) =>
     candidate.extensions.some((extension) => file.name.toLowerCase().endsWith(extension)),
   );
   if (!reader) {
-    throw new Error("Unsupported file format. Choose an ASC (.asc) peak list.");
+    throw new Error("Unsupported file format. Choose a text (.txt, .asc, .csv, .tsv) peak list.");
   }
-  const result = await reader.parse(await file.text());
+  const result = await reader.parse(await file.text(), spec);
   if (result.peaks.length === 0) {
     throw new Error("The file contains no peaks.");
   }

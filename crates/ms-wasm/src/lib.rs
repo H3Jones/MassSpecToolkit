@@ -7,7 +7,10 @@ use ms_core::isotopes::{
 };
 use ms_core::parser::parse_element_ranges as parse_ranges;
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
-use serde::Serialize;
+use ms_readers::readers::txt::{
+    self, TxtDelimiter as ReaderTxtDelimiter, TxtFormat as ReaderTxtFormat,
+};
+use serde::{Deserialize, Serialize};
 use tsify::{Ts, Tsify};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::*;
@@ -107,8 +110,60 @@ pub struct SpectrumPeakResult {
 }
 
 #[derive(Serialize, Tsify)]
+#[tsify(missing_as_null)]
 pub struct MassSpectrumResult {
     peaks: Vec<SpectrumPeakResult>,
+}
+
+#[derive(Serialize, Deserialize, Tsify)]
+#[serde(rename_all = "snake_case")]
+pub enum TxtDelimiter {
+    Whitespace,
+    Character(char),
+}
+
+/// Text layout with zero-based column indices and a physical-line skip count.
+#[derive(Serialize, Deserialize, Tsify)]
+#[tsify(missing_as_null)]
+pub struct TxtFormat {
+    delimiter: TxtDelimiter,
+    skip_lines: usize,
+    column_count: usize,
+    mz_column: usize,
+    intensity_column: usize,
+    signal_to_noise_column: Option<usize>,
+}
+
+impl From<ReaderTxtFormat> for TxtFormat {
+    fn from(spec: ReaderTxtFormat) -> Self {
+        Self {
+            delimiter: match spec.delimiter {
+                ReaderTxtDelimiter::Whitespace => TxtDelimiter::Whitespace,
+                ReaderTxtDelimiter::Character(value) => TxtDelimiter::Character(value),
+            },
+            skip_lines: spec.skip_lines,
+            column_count: spec.column_count,
+            mz_column: spec.mz_column,
+            intensity_column: spec.intensity_column,
+            signal_to_noise_column: spec.signal_to_noise_column,
+        }
+    }
+}
+
+impl From<TxtFormat> for ReaderTxtFormat {
+    fn from(spec: TxtFormat) -> Self {
+        Self {
+            delimiter: match spec.delimiter {
+                TxtDelimiter::Whitespace => ReaderTxtDelimiter::Whitespace,
+                TxtDelimiter::Character(value) => ReaderTxtDelimiter::Character(value),
+            },
+            skip_lines: spec.skip_lines,
+            column_count: spec.column_count,
+            mz_column: spec.mz_column,
+            intensity_column: spec.intensity_column,
+            signal_to_noise_column: spec.signal_to_noise_column,
+        }
+    }
 }
 
 #[derive(Serialize, Tsify)]
@@ -130,11 +185,29 @@ pub fn parse_formula(input: &str) -> Result<Ts<FormulaResult>, JsError> {
     Ok(result.into_ts()?)
 }
 
-/// Reads a three-column ASC peak list without sorting or normalizing the peaks.
+/// Guesses a text layout from up to 32 lines, without assuming unlabeled S/N.
 #[wasm_bindgen]
-pub fn parse_asc(input: &str) -> Result<Ts<MassSpectrumResult>, JsError> {
-    let spectrum = ms_readers::readers::asc::read(input.as_bytes())
-        .map_err(|error| JsError::new(&error.to_string()))?;
+pub fn guess_txt_format(input: &str) -> Result<Ts<TxtFormat>, JsError> {
+    let spec: TxtFormat = txt::guess_txt_format(input.as_bytes())
+        .map_err(|error| JsError::new(&error.to_string()))?
+        .into();
+    Ok(spec.into_ts()?)
+}
+
+/// Reads text peaks with an explicit layout, or guesses one if omitted.
+/// Peak order, duplicate m/z values, and original intensities are preserved.
+#[wasm_bindgen]
+pub fn parse_txt(
+    input: &str,
+    spec: Option<Ts<TxtFormat>>,
+) -> Result<Ts<MassSpectrumResult>, JsError> {
+    let spec = if let Some(spec) = spec {
+        spec.to_rust()?.into()
+    } else {
+        txt::guess_txt_format(input.as_bytes()).map_err(|error| JsError::new(&error.to_string()))?
+    };
+    let spectrum =
+        txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))?;
     let result = MassSpectrumResult {
         peaks: spectrum
             .peaks()

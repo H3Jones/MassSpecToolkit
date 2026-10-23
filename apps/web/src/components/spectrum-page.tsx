@@ -219,8 +219,8 @@ export default function SpectrumPage({
               </p>
             ))}
             <p>
-              Blank lines are ignored. m/z must be positive; intensity and S/N must be nonnegative.
-              All values must be finite.
+              Blank lines and # comments are ignored. m/z must be positive; intensity and S/N must
+              be nonnegative. All mapped values must be finite.
             </p>
           </div>
           <p id="spectrum-memory" className="text-xs text-muted-foreground">
@@ -244,7 +244,7 @@ export default function SpectrumPage({
                 case "loaded":
                   return `Loaded ${state.dataset.filename}.`;
                 case "empty":
-                  return "Choose an ASC file to begin.";
+                  return "Choose a text peak list to begin.";
                 default:
                   return "";
               }

@@ -14,6 +14,8 @@ export type {
   PeakAssignmentMatchResult,
   PeakAssignmentResult,
   SpectrumPeakResult,
+  TxtDelimiter,
+  TxtFormat,
 } from "./types.ts";
 export type { MsApi } from "./wasm.ts";
 export {

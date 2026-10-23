@@ -7,7 +7,7 @@ function dataset(id: string): SpectrumDataset {
   return {
     id,
     filename: `${id}.asc`,
-    format: "ASC",
+    format: "Text",
     peaks: [peak],
     chartPeaks: [{ mz: 43, int: 1 }],
     summary: { minimumMz: 43, maximumMz: 43, basePeak: peak, basePeakCount: 1 },

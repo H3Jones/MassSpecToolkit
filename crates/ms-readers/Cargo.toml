@@ -8,5 +8,4 @@ ms-core = { path = "../ms-core" }
 
 [features]
 default = ["txt"]
-asc = []
 txt = []

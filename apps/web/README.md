@@ -31,7 +31,8 @@ linting, and type checks; the production build also runs TypeScript. Both
 The top-bar Spectra dropdown opens the spectrum inspector, and Toolkit lists
 each calculator plus an All tools link. The landing page also links to these pages:
 
-- `#/spectrum`: import an ASC peak list and inspect its spectrum, summary, and
+- `#/spectrum`: import a text peak list (.txt, .asc, .csv, .tsv) with automatic
+  format detection and inspect its spectrum, summary, and
   sortable peak table. One dataset stays in memory across navigation; refreshing
   clears it. Failed imports retain the previous spectrum.
 - `#/tools/ion-calculator`: formula mass, m/z, and degree of unsaturation.
