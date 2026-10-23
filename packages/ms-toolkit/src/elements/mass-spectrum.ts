@@ -153,6 +153,7 @@ export class MsMassSpectrum extends HTMLElement {
       }
       const definition = createMassSpectrumChart(this.#data, {
         color: this.getAttribute("color") ?? getComputedStyle(this).color,
+        textColor: getComputedStyle(this).color,
         labels: labelsAttribute !== "false",
         mzDomain,
         zoomDomain: this.#zoomDomain,

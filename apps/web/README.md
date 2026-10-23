@@ -28,8 +28,11 @@ linting, and type checks; the production build also runs TypeScript. Both
 
 ## Scope
 
-The landing page links to three working calculators:
+The landing page links to the spectrum inspector and calculators:
 
+- `#/spectrum`: import an ASC peak list and inspect its spectrum, summary, and
+  sortable peak table. One dataset stays in memory across navigation; refreshing
+  clears it. Failed imports retain the previous spectrum.
 - `#/tools/ion-calculator`: formula mass, m/z, and degree of unsaturation.
 - `#/tools/mass-split`: unmatched components and signed mass difference.
 - `#/tools/fine-isotope-structure`: isotope distribution, spectrum, and peak table.
@@ -49,7 +52,7 @@ The Vite base path is `/MassSpecToolkit/`, matching the repository's Pages URL:
 `https://h3jones.github.io/MassSpecToolkit/`. `npm run build` produces the static
 site in `dist`.
 
-Calculator navigation uses hash routes, so direct links, refresh, and browser
+App navigation uses hash routes, so direct links, refresh, and browser
 back/forward work on Pages without a server-side SPA rewrite. For example:
 `https://h3jones.github.io/MassSpecToolkit/#/tools/ion-calculator`.
 Unknown page routes display a not-found message. Home-page section anchors
@@ -64,6 +67,8 @@ from this directory with `npx shadcn@latest add <component>`.
 Calculator pages are lazy-loaded, keeping chart code off the initial landing
 page. They reuse the existing toolkit web components, including their forms,
 loading states, errors, and results; no calculations are reimplemented in React.
+The spectrum page owns its import workflow in React, reusing the toolkit's
+WASM reader, chart, and table. No imported data is sent to a server.
 
 The local `ms-toolkit` dependency is aliased to its TypeScript source in the
 Vite and TypeScript configurations. This lets Vite process the worker and WASM

@@ -137,6 +137,17 @@ describe("mass spectrum chart", () => {
     expect(render(createMassSpectrumChart(peaks)).renderToSVGString()).toContain(">43</text>");
   });
 
+  it("supports readable axis labels and controls on dark backgrounds", () => {
+    const option = createMassSpectrumChart(peaks, { textColor: "#f1f5f9" });
+    expect(option.xAxis).toMatchObject({
+      nameTextStyle: { color: "#f1f5f9" },
+      axisLabel: { color: "#f1f5f9" },
+    });
+    expect(option.yAxis).toMatchObject({ axisLabel: { color: "#f1f5f9" } });
+    expect(option.toolbox).toMatchObject({ iconStyle: { borderColor: "#f1f5f9" } });
+    expect(render(option).renderToSVGString()).toContain('fill="#f1f5f9"');
+  });
+
   it("enables native inside and slider zoom without filtering or renormalizing peaks", () => {
     expect(createMassSpectrumChart(peaks).dataZoom).toMatchObject([
       {

@@ -20,8 +20,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ToolErrorBoundary } from "@/components/tool-error-boundary";
 import { resolveRoute, subscribeToHashChange } from "@/lib/routes";
 import { tools, toolHref } from "@/lib/tools";
+import { createSpectrumImportStore } from "@/lib/spectrum-import";
 
 const ToolPage = lazy(() => import("@/components/tool-page"));
+const SpectrumPage = lazy(() => import("@/components/spectrum-page"));
 
 const repository = "https://github.com/H3Jones/MassSpecToolkit";
 const documentation = `${repository}/tree/HEAD/packages/ms-toolkit#readme`;
@@ -153,15 +155,19 @@ function App() {
   const mainRef = useRef<HTMLElement>(null);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [themeError, setThemeError] = useState("");
+  const [spectrumStore] = useState(createSpectrumImportStore);
+  const spectrumState = useSyncExternalStore(spectrumStore.subscribe, spectrumStore.getSnapshot);
 
   useEffect(() => {
     const current = resolveRoute(hash);
     document.title =
       current.kind === "tool"
         ? `${current.tool.name} | MassSpecToolkit`
-        : current.kind === "not-found"
-          ? "Page not found | MassSpecToolkit"
-          : "MassSpecToolkit | Mass spectrometry calculations";
+        : current.kind === "spectrum"
+          ? "Spectrum inspector | MassSpecToolkit"
+          : current.kind === "not-found"
+            ? "Page not found | MassSpecToolkit"
+            : "MassSpecToolkit | Mass spectrometry calculations";
 
     if (current.kind === "home" && hash && !hash.startsWith("#/")) {
       document.getElementById(hash.slice(1))?.scrollIntoView();
@@ -212,6 +218,13 @@ function App() {
             </span>
           </a>
           <nav aria-label="Main navigation" className="flex items-center gap-1 sm:gap-5">
+            <a
+              className="nav-link"
+              href="#/spectrum"
+              aria-current={route.kind === "spectrum" ? "page" : undefined}
+            >
+              Spectra
+            </a>
             <a className="nav-link" href="#toolkit">
               Toolkit
             </a>
@@ -243,7 +256,23 @@ function App() {
       )}
 
       <main id="main" ref={mainRef} tabIndex={-1} className="min-h-[60vh] outline-none">
-        {route.kind === "tool" ? (
+        {route.kind === "spectrum" ? (
+          <ToolErrorBoundary key="spectrum" pageName="Spectrum inspector">
+            <Suspense
+              fallback={
+                <p role="status" className="page-width py-16">
+                  Loading spectrum inspector...
+                </p>
+              }
+            >
+              <SpectrumPage
+                state={spectrumState}
+                importFile={spectrumStore.importFile}
+                dark={dark}
+              />
+            </Suspense>
+          </ToolErrorBoundary>
+        ) : route.kind === "tool" ? (
           <ToolErrorBoundary key={route.tool.id}>
             <Suspense
               fallback={
@@ -258,7 +287,7 @@ function App() {
         ) : route.kind === "not-found" ? (
           <section className="page-width py-16">
             <h1 className="text-3xl font-semibold">Page not found</h1>
-            <p className="mt-4 text-muted-foreground">This calculator page does not exist.</p>
+            <p className="mt-4 text-muted-foreground">This page does not exist.</p>
             <Button asChild className="mt-6">
               <a href="#toolkit">Return to toolkit</a>
             </Button>
@@ -285,6 +314,11 @@ function App() {
                     distributions using a Rust calculation core compiled to WebAssembly.
                   </p>
                   <div className="mt-8 flex flex-wrap gap-3">
+                    <Button asChild size="lg" className="h-11 px-5">
+                      <a href="#/spectrum">
+                        Inspect a spectrum <ArrowRight className="ml-2" />
+                      </a>
+                    </Button>
                     <Button asChild size="lg" className="h-11 px-5">
                       <a href="#toolkit">
                         View components <ArrowDown className="ml-2" />

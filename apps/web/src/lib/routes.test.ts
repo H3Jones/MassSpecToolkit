@@ -15,6 +15,11 @@ describe("static-host routes", () => {
     expect(toolHref(tool)).toMatch(/^#\/tools\/[a-z-]+$/);
   });
 
+  it("resolves the spectrum inspector independently of calculator tools", () => {
+    expect(resolveRoute("#/spectrum")).toEqual({ kind: "spectrum" });
+    expect(resolveRoute("#/spectrum/extra")).toEqual({ kind: "not-found" });
+  });
+
   it.each(["#/tools/unknown", "#/unknown", "#/tools", "#/tools/ion-calculator/extra"])(
     "reports unknown page routes: %s",
     (hash) => {

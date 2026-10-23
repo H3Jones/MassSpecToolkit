@@ -8,6 +8,18 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "ms-toolkit/core": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/core/index.ts", import.meta.url),
+      ),
+      "ms-toolkit/charts": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/charts/index.ts", import.meta.url),
+      ),
+      "ms-toolkit/mass-spectrum": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/mass-spectrum.ts", import.meta.url),
+      ),
+      "ms-toolkit/table": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/table.ts", import.meta.url),
+      ),
       "ms-toolkit/ion-calculator": fileURLToPath(
         new URL("../../packages/ms-toolkit/src/elements/ion-calculator.ts", import.meta.url),
       ),

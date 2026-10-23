@@ -38,6 +38,7 @@ export interface RelativeSpectrumPeak extends SpectrumPeak {
 
 export interface MassSpectrumOptions {
   color?: string;
+  textColor?: string;
   labels?: boolean;
   mzDomain?: readonly [number, number];
   zoomDomain?: readonly [number, number];
@@ -130,6 +131,7 @@ export function createMassSpectrumChart(
 ): MassSpectrumChartOption {
   const data = normalizeSpectrumPeaks(peaks);
   const color = options.color ?? "currentColor";
+  const textColor = options.textColor;
   const xLabel = options.xLabel ?? "m/z";
   const mzDomain = options.mzDomain ?? getAutomaticMzDomain(data);
   if (
@@ -157,6 +159,7 @@ export function createMassSpectrumChart(
     grid: { left: 75, right: 25, top: 45, bottom: 90 },
     toolbox: {
       left: 75,
+      iconStyle: { borderColor: textColor },
       feature: { dataZoom: { xAxisIndex: 0, yAxisIndex: "none", filterMode: "none" } },
     },
     xAxis: {
@@ -166,7 +169,9 @@ export function createMassSpectrumChart(
       name: xLabel,
       nameLocation: "middle",
       nameGap: 30,
-      nameTextStyle: { fontSize: 16 },
+      nameTextStyle: { fontSize: 16, color: textColor },
+      axisLabel: { color: textColor },
+      axisLine: { lineStyle: { color: textColor } },
       splitLine: { show: true },
     },
     yAxis: {
@@ -177,8 +182,11 @@ export function createMassSpectrumChart(
       name: "Relative intensity (%)",
       nameLocation: "middle",
       nameGap: 45,
-      nameTextStyle: { fontSize: 16 },
-      axisLabel: { formatter: (value: number) => (value <= 100 ? String(value) : "") },
+      nameTextStyle: { fontSize: 16, color: textColor },
+      axisLabel: {
+        color: textColor,
+        formatter: (value: number) => (value <= 100 ? String(value) : ""),
+      },
       splitLine: { show: true },
     },
     dataZoom: [

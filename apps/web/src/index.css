@@ -180,6 +180,18 @@
     font-size: 0.875rem;
   }
 
+  .spectrum-chart,
+  .spectrum-table {
+    display: block;
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+
+  .spectrum-chart::part(status),
+  .spectrum-table::part(error) {
+    color: var(--destructive);
+  }
+
   .tool-element::part(form) {
     gap: 1rem;
     padding-bottom: 1.25rem;

@@ -1,7 +1,10 @@
 import { Component, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
-export class ToolErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+export class ToolErrorBoundary extends Component<
+  { children: ReactNode; pageName?: string },
+  { error: Error | null }
+> {
   state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
@@ -9,16 +12,19 @@ export class ToolErrorBoundary extends Component<{ children: ReactNode }, { erro
   }
 
   componentDidCatch(error: Error) {
-    console.error("Unable to load calculator page.", error);
+    console.error(`Unable to load ${this.props.pageName ?? "calculator"} page.`, error);
   }
 
   render() {
     if (this.state.error) {
       return (
         <section className="page-width py-16">
-          <h1 className="text-3xl font-semibold">Calculator unavailable</h1>
+          <h1 className="text-3xl font-semibold">
+            {this.props.pageName ?? "Calculator"} unavailable
+          </h1>
           <p role="alert" className="mt-4 text-destructive">
-            The calculator could not be loaded. Check your connection and reload the page.
+            {this.props.pageName ?? "The calculator"} could not be loaded. Check your connection and
+            reload the page.
           </p>
           <Button className="mt-6" onClick={() => window.location.reload()}>
             Reload page
