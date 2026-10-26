@@ -266,6 +266,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
                 RT range in file: {metadata.minimumRetentionTime} - {metadata.maximumRetentionTime}{" "}
                 (original input units).
               </p>
+              <hr />
               <div className="flex flex-wrap items-end gap-3">
                 <label className="grid gap-1">
                   Minimum RT
@@ -303,7 +304,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
               </div>
               <p role="status" aria-live="polite">
                 {querying
-                  ? "Querying DuckDB. The previous view remains visible."
+                  ? "Querying DB. The previous view remains visible."
                   : `Showing ${view.peakCount.toLocaleString()} measurements.`}
               </p>
               {appliedRange && (
@@ -350,7 +351,8 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           <CardHeader>
             <CardTitle>Total ion chromatogram (TIC)</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Original intensities summed at each RT, in the file&apos;s input units. Click anywhere
+              Original intensities summed at each RT, in the file&apos;s input units.             
+              <br /> Click anywhere
               inside the plot to snap to the nearest displayed RT and show that slice in the
               spectrum and peak list. Use the numeric RT bounds above for an inclusive range. Zoom
               or drag the RT slider for finer detail; Home or Restore resets the axis. Arrow keys
