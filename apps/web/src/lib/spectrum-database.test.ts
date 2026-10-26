@@ -293,6 +293,43 @@ describe("in-memory spectrum queries (real DuckDB WASM)", () => {
     expect((await source.querySelection([2, 2])).peakCount).toBe(13_616);
   });
 
+  it("shares concurrent selection queries for the same RT range and refreshes on range changes", async () => {
+    const source = await open([
+      { mz: 43, intensity: 100, signal_to_noise: null, retention_time: 1 },
+      { mz: 57, intensity: 50, signal_to_noise: null, retention_time: 2 },
+    ]);
+    databaseQueries.run.mockClear();
+
+    const selections = await Promise.all([
+      source.querySelection([1, 1]),
+      source.querySelection([1, 1]),
+    ]);
+    expect(selections[0]).toEqual(selections[1]);
+    expect(selections[0].summary?.basePeak.retention_time).toBe(1);
+    expect(databaseQueries.run).toHaveBeenCalledTimes(1);
+
+    await source.querySelection([1, 1]);
+    expect(databaseQueries.run).toHaveBeenCalledTimes(1);
+    expect((await source.querySelection([2, 2])).summary?.basePeak.retention_time).toBe(2);
+    expect(databaseQueries.run).toHaveBeenCalledTimes(2);
+    expect((await source.querySelection([1, 1])).summary?.basePeak.retention_time).toBe(1);
+    expect(databaseQueries.run).toHaveBeenCalledTimes(3);
+  });
+
+  it("evicts failed selection queries so the same range can be retried", async () => {
+    const source = await open([{ mz: 43, intensity: 100, signal_to_noise: null }]);
+    databaseQueries.run.mockClear();
+    databaseQueries.run.mockImplementationOnce(() => {
+      throw new Error("Selection query failed.");
+    });
+
+    await expect(source.querySelection()).rejects.toThrow("Selection query failed.");
+    expect((await source.querySelection()).peakCount).toBe(1);
+    expect(databaseQueries.run).toHaveBeenCalledTimes(2);
+    await source.querySelection();
+    expect(databaseQueries.run).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects queries after disposal and supports idempotent cleanup", async () => {
     const source = await open([{ mz: 43, intensity: 100, signal_to_noise: null }]);
     await source.querySelection();
@@ -301,6 +338,7 @@ describe("in-memory spectrum queries (real DuckDB WASM)", () => {
     await expect(source.querySelection()).rejects.toThrow("closed");
     await expect(queryRows(source)).rejects.toThrow("closed");
     await expect(source.queryChart({ mzRange: [0, 100], binCount: 10 })).rejects.toThrow("closed");
+    await expect(source.queryTic({ rtRange: [0, 1], binCount: 10 })).rejects.toThrow("closed");
   });
 
   it("preserves extreme finite intensities without changing their scale", async () => {
