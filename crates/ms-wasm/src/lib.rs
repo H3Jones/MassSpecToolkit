@@ -6,11 +6,15 @@ use ms_core::isotopes::{
     fine_isotope_distribution as calculate_fine_isotope_distribution, isotope_data,
 };
 use ms_core::parser::parse_element_ranges as parse_ranges;
+use ms_core::spectrum::{
+    MassSpectrum, Peak, SpectrumMetadata as CoreSpectrumMetadata, SpectrumType as CoreSpectrumType,
+};
 use ms_core::{ELECTRON_MASS, isotopes::IsotopeId};
 use ms_readers::readers::txt::{
     self, TxtDelimiter as ReaderTxtDelimiter, TxtFormat as ReaderTxtFormat,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use tsify::{Ts, Tsify};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::*;
@@ -107,12 +111,59 @@ pub struct SpectrumPeakResult {
     mz: f64,
     intensity: f64,
     signal_to_noise: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    retention_time: Option<f64>,
 }
 
 #[derive(Serialize, Tsify)]
 #[tsify(missing_as_null)]
 pub struct MassSpectrumResult {
     peaks: Vec<SpectrumPeakResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    metadata: Option<SpectrumMetadata>,
+}
+
+#[derive(Serialize, Tsify)]
+pub enum SpectrumType {
+    Direct,
+    Hyphenated,
+}
+
+#[derive(Serialize, Tsify)]
+#[serde(rename_all = "camelCase")]
+#[tsify(missing_as_null)]
+pub struct SpectrumMetadata {
+    filename: String,
+    #[serde(rename = "type")]
+    spectrum_type: SpectrumType,
+    peak_count: usize,
+    minimum_mz: f64,
+    maximum_mz: f64,
+    minimum_intensity: f64,
+    maximum_intensity: f64,
+    minimum_retention_time: Option<f64>,
+    maximum_retention_time: Option<f64>,
+}
+
+impl From<CoreSpectrumMetadata> for SpectrumMetadata {
+    fn from(metadata: CoreSpectrumMetadata) -> Self {
+        Self {
+            filename: metadata.filename,
+            spectrum_type: match metadata.spectrum_type {
+                CoreSpectrumType::Direct => SpectrumType::Direct,
+                CoreSpectrumType::Hyphenated => SpectrumType::Hyphenated,
+            },
+            peak_count: metadata.peak_count,
+            minimum_mz: metadata.minimum_mz,
+            maximum_mz: metadata.maximum_mz,
+            minimum_intensity: metadata.minimum_intensity,
+            maximum_intensity: metadata.maximum_intensity,
+            minimum_retention_time: metadata.minimum_retention_time,
+            maximum_retention_time: metadata.maximum_retention_time,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Tsify)]
@@ -132,6 +183,9 @@ pub struct TxtFormat {
     mz_column: usize,
     intensity_column: usize,
     signal_to_noise_column: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[tsify(optional)]
+    retention_time_column: Option<usize>,
 }
 
 impl From<ReaderTxtFormat> for TxtFormat {
@@ -146,6 +200,7 @@ impl From<ReaderTxtFormat> for TxtFormat {
             mz_column: spec.mz_column,
             intensity_column: spec.intensity_column,
             signal_to_noise_column: spec.signal_to_noise_column,
+            retention_time_column: spec.retention_time_column,
         }
     }
 }
@@ -162,6 +217,7 @@ impl From<TxtFormat> for ReaderTxtFormat {
             mz_column: spec.mz_column,
             intensity_column: spec.intensity_column,
             signal_to_noise_column: spec.signal_to_noise_column,
+            retention_time_column: spec.retention_time_column,
         }
     }
 }
@@ -196,19 +252,18 @@ pub fn guess_txt_format(input: &str) -> Result<Ts<TxtFormat>, JsError> {
 
 /// Reads text peaks with an explicit layout, or guesses one if omitted.
 /// Peak order, duplicate m/z values, and original intensities are preserved.
+/// A filename requests full-file metadata for nonempty spectra; string-only calls are unchanged.
 #[wasm_bindgen]
 pub fn parse_txt(
     input: &str,
     spec: Option<Ts<TxtFormat>>,
+    filename: Option<String>,
 ) -> Result<Ts<MassSpectrumResult>, JsError> {
-    let spec = if let Some(spec) = spec {
-        spec.to_rust()?.into()
-    } else {
-        txt::guess_txt_format(input.as_bytes()).map_err(|error| JsError::new(&error.to_string()))?
-    };
-    let spectrum =
-        txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))?;
+    let spectrum = read_txt_spectrum(input, spec)?;
     let result = MassSpectrumResult {
+        metadata: filename
+            .and_then(|name| spectrum.metadata(name))
+            .map(Into::into),
         peaks: spectrum
             .peaks()
             .iter()
@@ -216,10 +271,216 @@ pub fn parse_txt(
                 mz: peak.mz(),
                 intensity: peak.intensity(),
                 signal_to_noise: peak.signal_to_noise(),
+                retention_time: peak.retention_time(),
             })
             .collect(),
     };
     Ok(result.into_ts()?)
+}
+
+fn read_txt_spectrum(input: &str, spec: Option<Ts<TxtFormat>>) -> Result<MassSpectrum, JsError> {
+    let spec = if let Some(spec) = spec {
+        spec.to_rust()?.into()
+    } else {
+        txt::guess_txt_format(input.as_bytes()).map_err(|error| JsError::new(&error.to_string()))?
+    };
+    txt::read(input.as_bytes(), &spec).map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// An owned, transferable columnar batch. Validity bytes distinguish missing values from zero.
+#[wasm_bindgen(getter_with_clone)]
+pub struct SpectrumPeakBatch {
+    #[wasm_bindgen(readonly)]
+    pub start_index: usize,
+    #[wasm_bindgen(readonly)]
+    pub mz: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub intensity: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub signal_to_noise: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub signal_to_noise_validity: Vec<u8>,
+    #[wasm_bindgen(readonly)]
+    pub retention_time: Vec<f64>,
+    #[wasm_bindgen(readonly)]
+    pub retention_time_validity: Vec<u8>,
+}
+
+impl SpectrumPeakBatch {
+    fn from_peaks(start_index: usize, peaks: impl ExactSizeIterator<Item = Peak>) -> Self {
+        let count = peaks.len();
+        let mut batch = Self {
+            start_index,
+            mz: Vec::with_capacity(count),
+            intensity: Vec::with_capacity(count),
+            signal_to_noise: Vec::with_capacity(count),
+            signal_to_noise_validity: Vec::with_capacity(count),
+            retention_time: Vec::with_capacity(count),
+            retention_time_validity: Vec::with_capacity(count),
+        };
+        for peak in peaks {
+            batch.mz.push(peak.mz());
+            batch.intensity.push(peak.intensity());
+            batch
+                .signal_to_noise
+                .push(peak.signal_to_noise().unwrap_or_default());
+            batch
+                .signal_to_noise_validity
+                .push(u8::from(peak.signal_to_noise().is_some()));
+            batch
+                .retention_time
+                .push(peak.retention_time().unwrap_or_default());
+            batch
+                .retention_time_validity
+                .push(u8::from(peak.retention_time().is_some()));
+        }
+        batch
+    }
+}
+
+/// Incremental reader: one text chunk, an unfinished line, and a bounded peak buffer.
+#[wasm_bindgen]
+pub struct StreamingTxtSpectrumReader {
+    reader: txt::TxtStreamReader,
+    pending: VecDeque<Peak>,
+    metadata: Option<CoreSpectrumMetadata>,
+    filename: String,
+    next_index: usize,
+    finished: bool,
+}
+
+impl StreamingTxtSpectrumReader {
+    fn add_peaks(&mut self, peaks: Vec<Peak>) {
+        for &peak in &peaks {
+            match &mut self.metadata {
+                Some(metadata) => metadata.include_peak(peak),
+                None => {
+                    self.metadata =
+                        Some(CoreSpectrumMetadata::from_peak(self.filename.clone(), peak))
+                }
+            }
+        }
+        self.pending.extend(peaks);
+    }
+}
+
+#[wasm_bindgen]
+impl StreamingTxtSpectrumReader {
+    #[wasm_bindgen(constructor)]
+    pub fn new(spec: Option<Ts<TxtFormat>>, filename: String) -> Result<Self, JsError> {
+        let spec = spec
+            .map(|spec| spec.to_rust().map(Into::into))
+            .transpose()?;
+        Ok(Self {
+            reader: txt::TxtStreamReader::new(spec)
+                .map_err(|error| JsError::new(&error.to_string()))?,
+            pending: VecDeque::new(),
+            metadata: None,
+            filename,
+            next_index: 0,
+            finished: false,
+        })
+    }
+
+    pub fn push_chunk(&mut self, chunk: &str) -> Result<(), JsError> {
+        if chunk.len() > 65_540 || self.pending.len() >= 16_384 {
+            return Err(JsError::new(
+                "Drain pending batches before pushing at most 65,540 UTF-8 bytes.",
+            ));
+        }
+        let peaks = self
+            .reader
+            .push_chunk(chunk)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        self.add_peaks(peaks);
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> Result<(), JsError> {
+        let peaks = self
+            .reader
+            .finish()
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        self.add_peaks(peaks);
+        self.finished = true;
+        if self.metadata.is_none() {
+            return Err(JsError::new("The file contains no peaks."));
+        }
+        Ok(())
+    }
+
+    pub fn peak_count(&self) -> usize {
+        self.metadata
+            .as_ref()
+            .map_or(0, |metadata| metadata.peak_count)
+    }
+
+    pub fn metadata(&self) -> Result<Ts<SpectrumMetadata>, JsError> {
+        if !self.finished {
+            return Err(JsError::new(
+                "Finish the text stream before requesting metadata.",
+            ));
+        }
+        let metadata = self
+            .metadata
+            .clone()
+            .ok_or_else(|| JsError::new("The file contains no peaks."))?;
+        Ok(SpectrumMetadata::from(metadata).into_ts()?)
+    }
+
+    pub fn next_batch(&mut self) -> Option<SpectrumPeakBatch> {
+        if self.pending.len() < 16_384 && !self.finished || self.pending.is_empty() {
+            return None;
+        }
+        let count = self.pending.len().min(16_384);
+        let batch = SpectrumPeakBatch::from_peaks(self.next_index, self.pending.drain(..count));
+        self.next_index += count;
+        Some(batch)
+    }
+}
+
+/// Retains the full Rust spectrum, but exposes at most 16,384 rows at a time to JavaScript.
+#[wasm_bindgen]
+pub struct TxtSpectrumReader {
+    spectrum: MassSpectrum,
+    metadata: CoreSpectrumMetadata,
+    next_index: usize,
+}
+
+#[wasm_bindgen]
+impl TxtSpectrumReader {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        input: &str,
+        spec: Option<Ts<TxtFormat>>,
+        filename: String,
+    ) -> Result<TxtSpectrumReader, JsError> {
+        let spectrum = read_txt_spectrum(input, spec)?;
+        let metadata = spectrum
+            .metadata(filename)
+            .ok_or_else(|| JsError::new("The file contains no peaks."))?;
+        Ok(Self {
+            spectrum,
+            metadata,
+            next_index: 0,
+        })
+    }
+
+    pub fn metadata(&self) -> Result<Ts<SpectrumMetadata>, JsError> {
+        Ok(SpectrumMetadata::from(self.metadata.clone()).into_ts()?)
+    }
+
+    pub fn next_batch(&mut self) -> Option<SpectrumPeakBatch> {
+        let start = self.next_index;
+        if start == self.spectrum.peaks().len() {
+            return None;
+        }
+        let end = (start + 16_384).min(self.spectrum.peaks().len());
+        let batch =
+            SpectrumPeakBatch::from_peaks(start, self.spectrum.peaks()[start..end].iter().copied());
+        self.next_index = end;
+        Some(batch)
+    }
 }
 
 /// Parses a comma- or whitespace-separated range list for display before assignment.

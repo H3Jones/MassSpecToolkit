@@ -20,6 +20,9 @@ export default defineConfig({
       "ms-toolkit/table": fileURLToPath(
         new URL("../../packages/ms-toolkit/src/elements/table.ts", import.meta.url),
       ),
+      "ms-toolkit/tic": fileURLToPath(
+        new URL("../../packages/ms-toolkit/src/elements/tic.ts", import.meta.url),
+      ),
       "ms-toolkit/ion-calculator": fileURLToPath(
         new URL("../../packages/ms-toolkit/src/elements/ion-calculator.ts", import.meta.url),
       ),

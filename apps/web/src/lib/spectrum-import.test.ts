@@ -2,15 +2,43 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createSpectrumImportStore } from "./spectrum-import";
 import type { SpectrumDataset } from "./spectrum";
 
+const source = {
+  timings: { readMs: 0, parseMs: 0, databaseMs: 0 },
+  querySelection: async () => ({ peakCount: 0 }),
+  queryTablePage: async () => [],
+  queryChart: async () => ({ peaks: [], visibleCount: 0 }),
+  queryTic: async () => ({ points: [], visibleCount: 0 }),
+  dispose: () => {},
+};
+
 function dataset(id: string): SpectrumDataset {
   const peak = { id: 0, mz: 43, intensity: 1, signal_to_noise: 0, relativeIntensity: 100 };
+  const metadata: SpectrumDataset["metadata"] = {
+    filename: `${id}.asc`,
+    type: "Direct",
+    peakCount: 1,
+    minimumMz: 43,
+    maximumMz: 43,
+    minimumIntensity: 1,
+    maximumIntensity: 1,
+    minimumRetentionTime: null,
+    maximumRetentionTime: null,
+  };
   return {
     id,
-    filename: `${id}.asc`,
+    metadata,
     format: "Text",
-    peaks: [peak],
-    chartPeaks: [{ mz: 43, int: 1 }],
-    summary: { minimumMz: 43, maximumMz: 43, basePeak: peak, basePeakCount: 1 },
+    source: { ...source, metadata },
+    firstPage: [peak],
+    peakCount: 1,
+    summary: {
+      minimumMz: 43,
+      maximumMz: 43,
+      minimumIntensity: 1,
+      maximumIntensity: 1,
+      basePeak: peak,
+      basePeakCount: 1,
+    },
   };
 }
 
@@ -25,6 +53,64 @@ function deferred<T>() {
 }
 
 describe("app-lifetime spectrum state", () => {
+  it("reports progress, cancels without replacing the valid dataset, and permits retry", async () => {
+    const previous = dataset("valid");
+    const disposePrevious = vi.spyOn(previous.source, "dispose");
+    const work = deferred<SpectrumDataset>();
+    const importer = vi
+      .fn()
+      .mockResolvedValueOnce(previous)
+      .mockReturnValueOnce(work.promise)
+      .mockResolvedValueOnce(dataset("retry"));
+    const store = createSpectrumImportStore(importer);
+    await store.importFile(new File([""], "valid.asc"));
+    const pending = store.importFile(new File(["43 1"], "cancel.asc"));
+    const options = importer.mock.calls[1][1];
+    const progress = { phase: "reading", bytesRead: 2, totalBytes: 4, peakCount: 1 };
+    options.onProgress(progress);
+    expect(store.getSnapshot()).toMatchObject({ status: "importing", progress, dataset: previous });
+    store.cancelImport();
+    expect(options.signal.aborted).toBe(true);
+    expect(store.getSnapshot()).toMatchObject({
+      status: "cancelled",
+      filename: "cancel.asc",
+      dataset: previous,
+    });
+    options.onProgress({ ...progress, bytesRead: 4 });
+    expect(store.getSnapshot().status).toBe("cancelled");
+    const obsolete = dataset("obsolete");
+    const disposeObsolete = vi.spyOn(obsolete.source, "dispose");
+    work.resolve(obsolete);
+    await pending;
+    expect(disposeObsolete).toHaveBeenCalledOnce();
+    expect(disposePrevious).not.toHaveBeenCalled();
+    await store.importFile(new File([""], "retry.asc"));
+    expect(store.getSnapshot()).toMatchObject({ status: "loaded", dataset: dataset("retry") });
+    expect(disposePrevious).toHaveBeenCalledOnce();
+  });
+
+  it("aborts superseded work and ignores its progress", async () => {
+    const old = deferred<SpectrumDataset>();
+    const latest = deferred<SpectrumDataset>();
+    const importer = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
+    const store = createSpectrumImportStore(importer);
+    const pendingOld = store.importFile(new File([""], "old.asc"));
+    const pendingLatest = store.importFile(new File([""], "latest.asc"));
+    expect(importer.mock.calls[0][1].signal.aborted).toBe(true);
+    importer.mock.calls[0][1].onProgress({
+      phase: "reading",
+      bytesRead: 4,
+      totalBytes: 4,
+      peakCount: 1,
+    });
+    expect(store.getSnapshot()).toMatchObject({ status: "importing", filename: "latest.asc" });
+    old.reject(new DOMException("Cancelled", "AbortError"));
+    await pendingOld;
+    latest.resolve(dataset("latest"));
+    await pendingLatest;
+    expect(store.getSnapshot()).toMatchObject({ status: "loaded", dataset: dataset("latest") });
+  });
+
   it("publishes loading and success and permits reimporting the same file", async () => {
     const importer = vi.fn().mockResolvedValue(dataset("first"));
     const store = createSpectrumImportStore(importer);
@@ -126,5 +212,34 @@ describe("app-lifetime spectrum state", () => {
     latest.resolve(dataset("latest"));
     await pendingLatest;
     expect(store.getSnapshot()).toEqual({ status: "loaded", dataset: dataset("latest") });
+  });
+
+  it("releases replaced and obsolete databases, but retains the database on failure", async () => {
+    const disposeFirst = vi.fn();
+    const disposeObsolete = vi.fn();
+    const firstDataset = dataset("first");
+    const obsoleteDataset = dataset("obsolete");
+    const first = { ...firstDataset, source: { ...firstDataset.source, dispose: disposeFirst } };
+    const obsolete = {
+      ...obsoleteDataset,
+      source: { ...obsoleteDataset.source, dispose: disposeObsolete },
+    };
+    const old = deferred<SpectrumDataset>();
+    const importer = vi
+      .fn()
+      .mockResolvedValueOnce(first)
+      .mockRejectedValueOnce(new Error("Bad file"))
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce(dataset("latest"));
+    const store = createSpectrumImportStore(importer);
+    await store.importFile(new File([""], "first.asc"));
+    await store.importFile(new File([""], "bad.asc"));
+    expect(disposeFirst).not.toHaveBeenCalled();
+    const pending = store.importFile(new File([""], "obsolete.asc"));
+    await store.importFile(new File([""], "latest.asc"));
+    expect(disposeFirst).toHaveBeenCalledOnce();
+    old.resolve(obsolete);
+    await pending;
+    expect(disposeObsolete).toHaveBeenCalledOnce();
   });
 });

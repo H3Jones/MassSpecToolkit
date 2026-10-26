@@ -3,7 +3,8 @@
 //! Format guessing examines at most 32 physical lines. It recognizes whitespace,
 //! tabs, commas, semicolons, and pipes, with an optional header. Headerless input
 //! uses the first two columns for m/z and intensity; extra columns are ignored,
-//! never assumed to be S/N. Recognized headers can map reordered columns and S/N.
+//! never assumed to be S/N or retention time. Recognized headers can map reordered
+//! columns, S/N, and retention time (RT), retaining the original time units.
 //! Blank lines and lines starting with `#` (after whitespace) are always ignored.
 //! Arbitrary preambles require an explicit `skip_lines` value.
 //!
@@ -57,6 +58,7 @@ pub enum TxtDelimiter {
 ///     mz_column: 0,
 ///     intensity_column: 1,
 ///     signal_to_noise_column: None,
+///     retention_time_column: None,
 /// };
 /// let spectrum = read("export\n202.85354\t917992\t0.00018\n".as_bytes(), &spec)?;
 /// assert_eq!(spectrum.peaks()[0].signal_to_noise(), None);
@@ -70,6 +72,7 @@ pub struct TxtFormat {
     pub mz_column: usize,
     pub intensity_column: usize,
     pub signal_to_noise_column: Option<usize>,
+    pub retention_time_column: Option<usize>,
 }
 
 impl TxtFormat {
@@ -83,19 +86,21 @@ impl TxtFormat {
             Some(self.mz_column),
             Some(self.intensity_column),
             self.signal_to_noise_column,
+            self.retention_time_column,
         ];
         if columns.iter().flatten().any(|&i| i >= self.column_count) {
             return Err(TxtReadError::InvalidSpec(
                 "mapped columns must be within column_count",
             ));
         }
-        if self.mz_column == self.intensity_column
-            || self
-                .signal_to_noise_column
-                .is_some_and(|i| i == self.mz_column || i == self.intensity_column)
+        let mapped: Vec<_> = columns.into_iter().flatten().collect();
+        if mapped
+            .iter()
+            .enumerate()
+            .any(|(index, column)| mapped[..index].contains(column))
         {
             return Err(TxtReadError::InvalidSpec(
-                "m/z, intensity, and S/N must use distinct columns",
+                "m/z, intensity, S/N, and retention time must use distinct columns",
             ));
         }
         Ok(())
@@ -154,6 +159,106 @@ pub fn guess_txt_format<R: BufRead>(input: R) -> Result<TxtFormat, TxtReadError>
     spec.ok_or(TxtReadError::NoSampleData)
 }
 
+/// Incremental decoded-text reader retaining only an unfinished physical line.
+/// Format detection and validation match [`guess_txt_format`] followed by [`read`].
+pub struct TxtStreamReader {
+    spec: Option<TxtFormat>,
+    guessing: bool,
+    has_data: bool,
+    line_count: usize,
+    partial_line: String,
+    finished: bool,
+}
+
+impl TxtStreamReader {
+    pub fn new(spec: Option<TxtFormat>) -> Result<Self, TxtReadError> {
+        if let Some(spec) = &spec {
+            spec.validate()?;
+        }
+        Ok(Self {
+            guessing: spec.is_none(),
+            spec,
+            has_data: false,
+            line_count: 0,
+            partial_line: String::new(),
+            finished: false,
+        })
+    }
+
+    pub fn push_chunk(&mut self, chunk: &str) -> Result<Vec<Peak>, TxtReadError> {
+        if self.finished {
+            return Err(TxtReadError::InvalidState("reader is finished or failed"));
+        }
+        let result = self.parse_chunk(chunk);
+        if result.is_err() {
+            self.finished = true;
+        }
+        result
+    }
+
+    fn parse_chunk(&mut self, chunk: &str) -> Result<Vec<Peak>, TxtReadError> {
+        let mut peaks = Vec::new();
+        for part in chunk.split_inclusive('\n') {
+            if let Some(line) = part.strip_suffix('\n') {
+                let peak = if self.partial_line.is_empty() {
+                    self.parse_line(line.strip_suffix('\r').unwrap_or(line))?
+                } else {
+                    self.partial_line.push_str(line);
+                    let mut complete = std::mem::take(&mut self.partial_line);
+                    let result = self.parse_line(complete.strip_suffix('\r').unwrap_or(&complete));
+                    complete.clear();
+                    self.partial_line = complete;
+                    result?
+                };
+                peaks.extend(peak);
+            } else {
+                self.partial_line.push_str(part);
+            }
+        }
+        Ok(peaks)
+    }
+
+    fn parse_line(&mut self, line: &str) -> Result<Option<Peak>, TxtReadError> {
+        let index = self.line_count;
+        self.line_count += 1;
+        let line = strip_bom(line, index);
+        let mut peak = None;
+        if !is_ignored(line) {
+            if self.spec.is_none() {
+                self.spec = Some(guess_line(line, index + 1)?.0);
+            }
+            let spec = self
+                .spec
+                .as_ref()
+                .expect("a nonignored line supplies a format");
+            if index >= spec.skip_lines {
+                peak = Some(parse_peak(line, index + 1, spec)?);
+                self.has_data = true;
+            }
+        }
+        if self.guessing && self.line_count == PREVIEW_LINES && !self.has_data {
+            return Err(TxtReadError::NoSampleData);
+        }
+        Ok(peak)
+    }
+
+    pub fn finish(&mut self) -> Result<Vec<Peak>, TxtReadError> {
+        if self.finished {
+            return Err(TxtReadError::InvalidState("reader is finished or failed"));
+        }
+        self.finished = true;
+        let mut peaks = Vec::new();
+        if !self.partial_line.is_empty() {
+            let line = std::mem::take(&mut self.partial_line);
+            peaks.extend(self.parse_line(&line)?);
+        }
+        if self.guessing && !self.has_data {
+            return Err(TxtReadError::NoSampleData);
+        }
+        Ok(peaks)
+    }
+}
+
 fn strip_bom(line: &str, index: usize) -> &str {
     if index == 0 {
         line.strip_prefix('\u{feff}').unwrap_or(line)
@@ -192,7 +297,7 @@ fn parse_peak(line: &str, line_number: usize, spec: &TxtFormat) -> Result<Peak, 
                 source,
             })
     };
-    Peak::new(
+    let peak = Peak::new(
         parse_column(spec.mz_column)?,
         parse_column(spec.intensity_column)?,
         spec.signal_to_noise_column.map(parse_column).transpose()?,
@@ -200,12 +305,22 @@ fn parse_peak(line: &str, line_number: usize, spec: &TxtFormat) -> Result<Peak, 
     .map_err(|source| TxtReadError::InvalidPeak {
         line: line_number,
         source,
-    })
+    })?;
+    match spec.retention_time_column {
+        Some(column) => peak
+            .with_retention_time(parse_column(column)?)
+            .map_err(|source| TxtReadError::InvalidPeak {
+                line: line_number,
+                source,
+            }),
+        None => Ok(peak),
+    }
 }
 
 const MZ_HEADERS: &[&str] = &["mz", "m/z"];
 const INTENSITY_HEADERS: &[&str] = &["intensity", "i", "abundance"];
 const SIGNAL_TO_NOISE_HEADERS: &[&str] = &["sn", "snr"];
+const RETENTION_TIME_HEADERS: &[&str] = &["rt", "retentiontime"];
 
 fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtReadError> {
     let delimiters = [
@@ -223,6 +338,7 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
         let mut mz = Vec::new();
         let mut intensity = Vec::new();
         let mut sn = Vec::new();
+        let mut rt = Vec::new();
         for (index, column) in columns.iter().enumerate() {
             let name: String = column
                 .chars()
@@ -235,11 +351,12 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
                 name if SIGNAL_TO_NOISE_HEADERS.contains(&name) => {
                     sn.push(index);
                 }
+                name if RETENTION_TIME_HEADERS.contains(&name) => rt.push(index),
                 _ => {}
             }
         }
         if !mz.is_empty() && !intensity.is_empty() {
-            if mz.len() != 1 || intensity.len() != 1 || sn.len() > 1 {
+            if mz.len() != 1 || intensity.len() != 1 || sn.len() > 1 || rt.len() > 1 {
                 return Err(TxtReadError::UnrecognizedFormat { line: line_number });
             }
             return Ok((
@@ -250,6 +367,7 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
                     mz_column: mz[0],
                     intensity_column: intensity[0],
                     signal_to_noise_column: sn.first().copied(),
+                    retention_time_column: rt.first().copied(),
                 },
                 true,
             ));
@@ -269,6 +387,7 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
                     mz_column: 0,
                     intensity_column: 1,
                     signal_to_noise_column: None,
+                    retention_time_column: None,
                 },
                 false,
             ));
@@ -282,6 +401,7 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
 pub enum TxtReadError {
     Io(io::Error),
     InvalidSpec(&'static str),
+    InvalidState(&'static str),
     NoSampleData,
     UnrecognizedFormat {
         line: usize,
@@ -308,6 +428,7 @@ impl fmt::Display for TxtReadError {
         match self {
             Self::Io(source) => write!(f, "failed to read text data: {source}"),
             Self::InvalidSpec(reason) => write!(f, "invalid text format spec: {reason}"),
+            Self::InvalidState(reason) => write!(f, "invalid text reader state: {reason}"),
             Self::NoSampleData => write!(
                 f,
                 "no data rows in the first {PREVIEW_LINES} lines; provide an explicit text format spec"
@@ -361,6 +482,7 @@ mod tests {
             mz_column: 0,
             intensity_column: 1,
             signal_to_noise_column: None,
+            retention_time_column: None,
         }
     }
 
@@ -432,6 +554,7 @@ mod tests {
             mz_column: 2,
             intensity_column: 0,
             signal_to_noise_column: Some(3),
+            retention_time_column: None,
         };
         let spectrum = read(
             "arbitrary metadata\nnot a recognized header\n20:label:2:10\n".as_bytes(),
@@ -460,6 +583,51 @@ mod tests {
             "line 3, column 2: \"bad\" is not a valid number"
         );
         assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn preserves_retention_times_without_inferring_units_or_merging_peaks() {
+        for header in ["Rt", "Retention time", "retention_time"] {
+            let input = format!("{header},m/z,Charge,Intensity\n2.4,109,-128,100\n2.5,109,1,200\n");
+            let spec = guess_txt_format(input.as_bytes()).unwrap();
+            assert_eq!(spec.retention_time_column, Some(0));
+            let spectrum = read(input.as_bytes(), &spec).unwrap();
+            assert_eq!(spectrum.peaks()[0].retention_time(), Some(2.4));
+            assert_eq!(spectrum.peaks()[1].retention_time(), Some(2.5));
+            assert_eq!(spectrum.peaks()[1].intensity(), 200.0);
+        }
+        let spec = TxtFormat {
+            column_count: 3,
+            retention_time_column: Some(2),
+            ..spec()
+        };
+        for value in ["-1", "NaN", "inf"] {
+            let input = format!("43 100 {value}");
+            assert!(matches!(
+                read(input.as_bytes(), &spec),
+                Err(TxtReadError::InvalidPeak {
+                    line: 1,
+                    source: SpectrumError::InvalidRetentionTime
+                })
+            ));
+        }
+        for column in [0, 1, 3] {
+            let invalid = TxtFormat {
+                retention_time_column: Some(column),
+                ..spec.clone()
+            };
+            assert!(matches!(
+                read("".as_bytes(), &invalid),
+                Err(TxtReadError::InvalidSpec(_))
+            ));
+        }
+        assert!(guess_txt_format("Rt,RT,m/z,Intensity\n1,2,43,100".as_bytes()).is_err());
+        assert_eq!(
+            guess_txt_format("43 100 2.4".as_bytes())
+                .unwrap()
+                .retention_time_column,
+            None
+        );
     }
 
     #[test]

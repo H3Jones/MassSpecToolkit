@@ -42,6 +42,10 @@
       "types": "./dist/table.d.mts",
       "import": "./dist/table.mjs"
     },
+    "./tic": {
+      "types": "./dist/tic.d.mts",
+      "import": "./dist/tic.mjs"
+    },
     "./charts": {
       "types": "./dist/charts.d.mts",
       "import": "./dist/charts.mjs"

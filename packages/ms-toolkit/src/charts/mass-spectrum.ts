@@ -54,6 +54,8 @@ export interface MassSpectrumOptions {
   mzDomain?: readonly [number, number];
   zoomDomain?: readonly [number, number];
   xLabel?: string;
+  /** Full selected-spectrum intensity bounds when data contains only viewport samples. */
+  intensityExtent?: readonly [number, number];
 }
 
 export function getSpectrumIntensityMode(mode: unknown = "relative"): SpectrumIntensityMode {
@@ -93,10 +95,21 @@ export function copySpectrumPeaks(peaks: readonly SpectrumPeak[]): SpectrumPeak[
   }));
 }
 
-export function normalizeSpectrumPeaks(peaks: readonly SpectrumPeak[]): RelativeSpectrumPeak[] {
+export function normalizeSpectrumPeaks(
+  peaks: readonly SpectrumPeak[],
+  basePeakIntensity?: number,
+): RelativeSpectrumPeak[] {
   const data = copySpectrumPeaks(peaks);
   let maximum = 0;
   for (const peak of data) maximum = Math.max(maximum, peak.int);
+  if (basePeakIntensity !== undefined) {
+    if (!Number.isFinite(basePeakIntensity) || basePeakIntensity < maximum) {
+      throw new RangeError(
+        "The base peak intensity must be finite and at least every supplied intensity.",
+      );
+    }
+    maximum = basePeakIntensity;
+  }
   return data.map((peak) => ({
     ...peak,
     relativeIntensity: maximum === 0 ? 0 : (peak.int / maximum) * 100,
@@ -233,6 +246,22 @@ export function createSpectrumViewportUpdate(
   };
 }
 
+export function createSpectrumTooltipFormatter(
+  data: readonly RelativeSpectrumPeak[],
+  xLabel: string,
+  intensityMode: SpectrumIntensityMode,
+): TooltipComponentOption["formatter"] {
+  return (params) => {
+    const point = Array.isArray(params) ? params[0] : params;
+    const item = point?.data;
+    const sourceIndex =
+      item && typeof item === "object" && "sourceIndex" in item ? item.sourceIndex : undefined;
+    const peak = typeof sourceIndex === "number" ? data[sourceIndex] : undefined;
+    if (!peak) throw new RangeError("Spectrum tooltip peak is out of range.");
+    return createSpectrumTooltip(peak, xLabel, intensityMode);
+  };
+}
+
 /**
  * Budgeted initial viewport options. Without the spectrum element, rebuild with
  * the current zoomDomain after zoom/pan to reveal peaks omitted from the overview.
@@ -248,6 +277,7 @@ export function createMassSpectrumChart(
 export function createPreparedMassSpectrumChart(
   data: readonly RelativeSpectrumPeak[],
   options: MassSpectrumOptions = {},
+  peakSelection?: SpectrumPeakSelection,
 ) {
   const intensityMode = getSpectrumIntensityMode(options.intensityMode);
   const relative = intensityMode === "relative";
@@ -256,6 +286,24 @@ export function createPreparedMassSpectrumChart(
   for (const peak of data) {
     maximumIntensity = Math.max(maximumIntensity, peak.int);
     minimumIntensity = Math.min(minimumIntensity, peak.int);
+  }
+  if (options.intensityExtent) {
+    const [minimum, maximum] = options.intensityExtent;
+    if (
+      options.intensityExtent.length !== 2 ||
+      !Number.isFinite(minimum) ||
+      !Number.isFinite(maximum) ||
+      minimum < 0 ||
+      maximum < minimum ||
+      maximum < maximumIntensity ||
+      (data.length > 0 && minimum > minimumIntensity)
+    ) {
+      throw new RangeError(
+        "Spectrum intensity bounds must be finite, nonnegative, and contain every supplied intensity.",
+      );
+    }
+    minimumIntensity = minimum;
+    maximumIntensity = maximum;
   }
   const absoluteSplitNumber = 5;
   // ECharts rounds ticks to 20 decimal places. Pin bounds outside its safe rounding range.
@@ -279,7 +327,7 @@ export function createPreparedMassSpectrumChart(
     throw new RangeError("Spectrum m/z range must have finite, increasing, non-negative bounds.");
   }
   const zoomDomain = normalizeZoomDomain(options.zoomDomain ?? mzDomain, mzDomain);
-  const selection = selectSpectrumPeaks(data, zoomDomain);
+  const selection = peakSelection ?? selectSpectrumPeaks(data, zoomDomain);
   const zoom = {
     xAxisIndex: 0,
     filterMode: "none" as const,
@@ -427,15 +475,7 @@ export function createPreparedMassSpectrumChart(
     tooltip: {
       trigger: "axis",
       confine: true,
-      formatter: (params) => {
-        const point = Array.isArray(params) ? params[0] : params;
-        const item = point?.data;
-        const sourceIndex =
-          item && typeof item === "object" && "sourceIndex" in item ? item.sourceIndex : undefined;
-        const peak = typeof sourceIndex === "number" ? data[sourceIndex] : undefined;
-        if (!peak) throw new RangeError("Spectrum tooltip peak is out of range.");
-        return createSpectrumTooltip(peak, xLabel, intensityMode);
-      },
+      formatter: createSpectrumTooltipFormatter(data, xLabel, intensityMode),
     },
   };
   return { option, selection, mzDomain };

@@ -12,6 +12,7 @@ combines TypeScript web components with a Rust/WebAssembly calculation core.
 | `<ms-mass-split>`             | `ms-toolkit/mass-split`             | Formula comparison and mass differences. |
 | `<ms-peak-assignment>`        | `ms-toolkit/peak-assignment`        | Candidate formulas for a measured peak.  |
 | `<ms-mass-spectrum>`          | `ms-toolkit/mass-spectrum`          | Interactive centroid spectra.            |
+| `<ms-tic>`                    | `ms-toolkit/tic`                    | Query-backed total ion chromatogram.     |
 | `<ms-table>`                  | `ms-toolkit/table`                  | Sortable, paginated tables.              |
 
 Import a component to register just that custom element. Importing

@@ -13,6 +13,18 @@ import { storeReactivityBindings } from "@tanstack/table-core/store-reactivity-b
 
 export type MsTableRow = Record<string, unknown>;
 
+export interface MsTablePageRequest {
+  readonly pageIndex: number;
+  readonly pageSize: number;
+  readonly sorting: readonly { readonly id: string; readonly desc: boolean }[];
+}
+
+/** Controlled server-side page; requests dispatch `ms-page-request` without replacing old rows. */
+export interface MsTablePage<TData extends MsTableRow = MsTableRow> extends MsTablePageRequest {
+  readonly rows: readonly TData[];
+  readonly rowCount: number;
+}
+
 const features = tableFeatures({
   coreReactivityFeature: storeReactivityBindings(),
   rowSortingFeature,
@@ -137,10 +149,13 @@ template.innerHTML = `
  * `<ms-table page-size="10" aria-label="Isotope peaks"></ms-table>`
  * Set `columns` to TanStack Table column definitions and `data` to row objects.
  * Column headers are sortable; the footer controls client-side pagination.
+ * Set `page` instead of `data` for controlled database sorting/pagination.
+ * Handle `ms-page-request` (detail: MsTablePageRequest) and apply `page` on success.
+ * The `loading` attribute disables controls while retaining the current page.
  * Rendering errors dispatch `ms-error` (detail: Error).
  */
 export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement {
-  static observedAttributes = ["page-size", "aria-label"];
+  static observedAttributes = ["page-size", "aria-label", "loading"];
 
   #data: TData[] = [];
   #columns: MsTableColumn<TData>[] = [];
@@ -156,18 +171,49 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
   #error!: HTMLElement;
   #previousButton!: HTMLButtonElement;
   #nextButton!: HTMLButtonElement;
+  #page?: MsTablePage<TData>;
+
+  get page(): MsTablePage<TData> | undefined {
+    return this.#page;
+  }
+
+  set page(page: MsTablePage<TData> | undefined) {
+    if (
+      page &&
+      (!Number.isSafeInteger(page.pageIndex) ||
+        page.pageIndex < 0 ||
+        !Number.isSafeInteger(page.pageSize) ||
+        page.pageSize < 1 ||
+        !Number.isSafeInteger(page.rowCount) ||
+        page.rowCount < 0 ||
+        !Array.isArray(page.rows) ||
+        page.rows.length > page.pageSize ||
+        !Array.isArray(page.sorting))
+    ) {
+      throw new TypeError("A table page must provide rows, a row count, pagination, and sorting.");
+    }
+    this.#validateRows(page?.rows ?? []);
+    this.#page = page;
+    this.#data = page ? [...page.rows] : [];
+    this.#updateTable();
+  }
 
   get data(): readonly TData[] {
     return [...this.#data];
   }
 
   set data(rows: readonly TData[]) {
+    this.#validateRows(rows);
+    this.#page = undefined;
+    this.#data = [...rows];
+    this.#updateTable();
+  }
+
+  #validateRows(rows: readonly TData[]): void {
     if (!Array.isArray(rows)) throw new TypeError("Table data must be an array of row objects.");
     if (rows.some((row) => row === null || typeof row !== "object" || Array.isArray(row))) {
       throw new TypeError("Each table row must be an object.");
     }
-    this.#data = [...rows];
-    this.#updateTable();
   }
 
   get columns(): readonly MsTableColumn<TData>[] {
@@ -196,14 +242,32 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
       this.#previousButton = root.querySelector<HTMLButtonElement>("[part=previous]")!;
       this.#nextButton = root.querySelector<HTMLButtonElement>("[part=next]")!;
       this.#pageSizeSelect.addEventListener("change", () => {
+        if (this.#page) {
+          const pageSize = Number(this.#pageSizeSelect.value);
+          this.#requestPage({
+            ...this.#page,
+            pageSize,
+            pageIndex: Math.floor((this.#page.pageIndex * this.#page.pageSize) / pageSize),
+          });
+          this.#pageSizeSelect.value = String(this.#page.pageSize);
+          return;
+        }
         this.#table?.setPageSize(Number(this.#pageSizeSelect.value));
         this.#render();
       });
       this.#previousButton.addEventListener("click", () => {
+        if (this.#page) {
+          this.#requestPage({ ...this.#page, pageIndex: this.#page.pageIndex - 1 });
+          return;
+        }
         this.#table?.previousPage();
         this.#render();
       });
       this.#nextButton.addEventListener("click", () => {
+        if (this.#page) {
+          this.#requestPage({ ...this.#page, pageIndex: this.#page.pageIndex + 1 });
+          return;
+        }
         this.#table?.nextPage();
         this.#render();
       });
@@ -213,6 +277,9 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
     const assignedColumns = Object.prototype.hasOwnProperty.call(this, "columns")
       ? this.columns
       : undefined;
+    const ownPage = Object.prototype.hasOwnProperty.call(this, "page");
+    const assignedPage = ownPage ? this.page : undefined;
+    if (ownPage) Reflect.deleteProperty(this, "page");
     if (assignedData !== undefined) {
       Reflect.deleteProperty(this, "data");
       this.data = assignedData;
@@ -221,6 +288,7 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
       Reflect.deleteProperty(this, "columns");
       this.columns = assignedColumns;
     }
+    if (ownPage) this.page = assignedPage;
     this.#updateTable();
   }
 
@@ -229,6 +297,11 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
     if (name === "page-size") {
       try {
         if (this.#table) {
+          if (this.#page) {
+            const pageSize = this.#pageSize();
+            this.#requestPage({ ...this.#page, pageSize, pageIndex: 0 });
+            return;
+          }
           this.#table.setPageSize(this.#pageSize());
           this.#render();
         } else {
@@ -259,14 +332,32 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
           ...options,
           columns: this.#columns,
           data: this.#data,
+          manualPagination: !!this.#page,
+          manualSorting: !!this.#page,
+          rowCount: this.#page?.rowCount,
         }));
-        this.#table.setPageIndex(0);
+        if (this.#page) {
+          this.#table.setPagination({
+            pageIndex: this.#page.pageIndex,
+            pageSize: this.#page.pageSize,
+          });
+          this.#table.setSorting([...this.#page.sorting]);
+        } else this.#table.setPageIndex(0);
       } else {
         this.#table = constructTable({
           features,
           columns: this.#columns,
           data: this.#data,
-          initialState: { pagination: { pageIndex: 0, pageSize: this.#pageSize() } },
+          manualPagination: !!this.#page,
+          manualSorting: !!this.#page,
+          rowCount: this.#page?.rowCount,
+          initialState: {
+            pagination: {
+              pageIndex: this.#page?.pageIndex ?? 0,
+              pageSize: this.#page?.pageSize ?? this.#pageSize(),
+            },
+            sorting: this.#page ? [...this.#page.sorting] : [],
+          },
         });
       }
       this.#columnWidths = this.#measureColumnWidths();
@@ -305,6 +396,7 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
           if (!header.isPlaceholder && column.getCanSort()) {
             const button = document.createElement("button");
             button.type = "button";
+            button.disabled = this.hasAttribute("loading");
             const rendered = flexRender(column.columnDef.header, header.getContext());
             this.#appendRendered(button, rendered);
             const indicator = document.createElement("span");
@@ -313,6 +405,15 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
             indicator.setAttribute("aria-hidden", "true");
             button.append(indicator);
             button.addEventListener("click", () => {
+              if (this.#page) {
+                const next = column.getNextSortingOrder();
+                this.#requestPage({
+                  ...this.#page,
+                  pageIndex: 0,
+                  sorting: next ? [{ id: column.id, desc: next === "desc" }] : [],
+                });
+                return;
+              }
               column.toggleSorting();
               this.#render();
             });
@@ -382,8 +483,11 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
         this.#pageSizeSelect.append(customOption);
         this.#pageSizeSelect.value = String(pagination.pageSize);
       }
-      this.#previousButton.disabled = !table.getCanPreviousPage();
-      this.#nextButton.disabled = !table.getCanNextPage();
+      const loading = this.hasAttribute("loading");
+      this.#tableElement.setAttribute("aria-busy", String(loading));
+      this.#pageSizeSelect.disabled = loading;
+      this.#previousButton.disabled = loading || !table.getCanPreviousPage();
+      this.#nextButton.disabled = loading || !table.getCanNextPage();
       this.#container.hidden = false;
       this.#pagination.hidden = false;
       this.#error.hidden = true;
@@ -399,6 +503,20 @@ export class MsTable<TData extends MsTableRow = MsTableRow> extends HTMLElement 
     } else {
       target.textContent = this.#renderedText(value);
     }
+  }
+
+  #requestPage(request: MsTablePageRequest): void {
+    if (this.hasAttribute("loading")) return;
+    this.dispatchEvent(
+      new CustomEvent<MsTablePageRequest>("ms-page-request", {
+        detail: {
+          pageIndex: request.pageIndex,
+          pageSize: request.pageSize,
+          sorting: request.sorting,
+        },
+        bubbles: true,
+      }),
+    );
   }
 
   #renderedText(value: unknown): string {

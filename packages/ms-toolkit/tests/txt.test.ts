@@ -69,6 +69,54 @@ describe("text spectra", () => {
     await expect(api.parseTxt(" \r\n\t\n", whitespaceSpec)).resolves.toEqual({ peaks: [] });
   });
 
+  it("preserves optional RT in original units across the wasm boundary", async () => {
+    const input = "Rt,m/z,Charge,Intensity\n2.4,109,-128,100\n2.5,109,-128,200\n";
+    const spec = await api.guessTxtFormat(input);
+    expect(spec.retention_time_column).toBe(0);
+    await expect(api.parseTxt(input, spec)).resolves.toEqual({
+      peaks: [
+        { mz: 109, intensity: 100, signal_to_noise: null, retention_time: 2.4 },
+        { mz: 109, intensity: 200, signal_to_noise: null, retention_time: 2.5 },
+      ],
+    });
+    await expect(api.parseTxt("Rt,m/z,Intensity\n-1,43,100")).rejects.toThrow("retention time");
+  });
+
+  it("returns full-file Direct metadata when a filename is supplied", async () => {
+    const result = await api.parseTxt("57 250\n43 1000\n57 0\n", undefined, "direct.asc");
+    expect(result.metadata).toEqual({
+      filename: "direct.asc",
+      type: "Direct",
+      peakCount: 3,
+      minimumMz: 43,
+      maximumMz: 57,
+      minimumIntensity: 0,
+      maximumIntensity: 1000,
+      minimumRetentionTime: null,
+      maximumRetentionTime: null,
+    });
+    expect((await api.parseTxt("", { ...whitespaceSpec }, "empty.asc")).metadata).toBeUndefined();
+  });
+
+  it("returns Hyphenated metadata for zero RT and bounds across all scans", async () => {
+    const result = await api.parseTxt(
+      "Rt,m/z,Intensity\n2.5,57,1000\n0,43,250\n2.4,109,0\n",
+      undefined,
+      "gc.csv",
+    );
+    expect(result.metadata).toEqual({
+      filename: "gc.csv",
+      type: "Hyphenated",
+      peakCount: 3,
+      minimumMz: 43,
+      maximumMz: 109,
+      minimumIntensity: 0,
+      maximumIntensity: 1000,
+      minimumRetentionTime: 0,
+      maximumRetentionTime: 2.5,
+    });
+  });
+
   it("surfaces guessing, spec, and full-file validation errors", async () => {
     const spec = { ...whitespaceSpec, signal_to_noise_column: 2 };
     for (const [input, message] of [
