@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SpectrumMetadata, SpectrumPeakResult, TxtFormat } from "ms-toolkit/core";
-import { readSpectrumFile } from "./spectrum";
+import { readSpectrumFile, spectrumReaders } from "./spectrum";
 import { openSpectrumFile } from "./spectrum-worker-client";
 import type { RetentionTimeRange, SpectrumSelection } from "./spectrum-database";
 
@@ -75,6 +75,15 @@ beforeEach(() => {
 });
 
 describe("spectrum imports", () => {
+  it("provides plain-text reader summaries without UI markup", () => {
+    for (const reader of spectrumReaders) {
+      expect(reader.short.trim().length).toBeGreaterThan(0);
+      expect(reader.short).not.toMatch(/<[^>]+>/);
+    }
+    const textReader = spectrumReaders.find((reader) => reader.id === "txt");
+    expect(textReader?.short).toContain("m/z, intensity, and optional S/N and RT");
+  });
+
   it("logs file-read, parser, and import durations without logging file contents", async () => {
     mockParsedPeaks([{ mz: 43, intensity: 100, signal_to_noise: null }]);
     const file = new File(["43 100"], "timed.asc");

@@ -14,8 +14,8 @@ export const spectrumReaders = [
     id: "txt",
     name: "Text",
     extensions: [".txt", ".asc", ".csv", ".tsv"],
-    description:
-      "Unquoted text (.txt, .asc, .csv, .tsv) with whitespace, tab, comma, semicolon, or pipe separators. Headers are detected; headerless data uses the first two columns for m/z and intensity. S/N and RT (retention time) require recognized headers or explicit column mappings. RT retains the input file's units.",
+    short:
+      "Unquoted text peak lists (.txt, .asc, .csv, .tsv) containing m/z, intensity, and optional S/N and RT columns.",
   },
 ] as const;
 

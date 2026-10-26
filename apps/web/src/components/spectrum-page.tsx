@@ -1,6 +1,9 @@
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
-import { FileUp, Waves } from "lucide-react";
+import { FileUp, Info, Waves, X } from "lucide-react";
+import { Popover } from "radix-ui";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpectrumReaderDescription } from "@/components/spectrum-reader-description";
 import {
   loadSpectrumView,
   spectrumReaders,
@@ -241,8 +244,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
             {metadata.type === "Direct" ? "Direct infusion" : "Hyphenated"}
           </p>
           <p className="text-sm text-muted-foreground">
-            {metadata.peakCount.toLocaleString()} measurements in the in-memory DuckDB database.
-            Refreshing clears this dataset.
+            {metadata.peakCount.toLocaleString()} measurements
           </p>
         </CardHeader>
         <CardContent>
@@ -262,9 +264,7 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
             >
               <p id="rt-description" className="text-muted-foreground">
                 RT range in file: {metadata.minimumRetentionTime} - {metadata.maximumRetentionTime}{" "}
-                (original input units). Initially showing the first RT slice. Bounds are inclusive;
-                equal bounds select one RT value. Peaks are shown individually, not summed into a
-                combined spectrum. Chart points and table pages are queried separately.
+                (original input units).
               </p>
               <div className="flex flex-wrap items-end gap-3">
                 <label className="grid gap-1">
@@ -481,8 +481,9 @@ export default function SpectrumPage({
           <CardTitle className="flex items-center gap-2">
             <FileUp className="size-5" /> Import spectrum
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            One spectrum at a time. A successful import replaces the current dataset.
+          <p id="spectrum-memory" className="text-sm text-muted-foreground">
+            Upload a mass spectrum or a hyphenated data set. Measurements are held in a local,
+            in-memory database while you navigate the app. Refreshing or closing the page clears it
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -494,7 +495,7 @@ export default function SpectrumPage({
               id="spectrum-file"
               type="file"
               accept={spectrumReaders.flatMap((reader) => reader.extensions).join(",")}
-              aria-describedby="spectrum-format spectrum-memory spectrum-performance"
+              aria-describedby="spectrum-format spectrum-memory"
               className="block w-full min-w-0 rounded-lg border bg-background p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-primary-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
@@ -504,25 +505,60 @@ export default function SpectrumPage({
             />
           </div>
           <div id="spectrum-format" className="space-y-1 text-sm text-muted-foreground">
+            <p>Supported spectrum file formats:</p>
             {spectrumReaders.map((reader) => (
-              <p key={reader.id}>
-                <strong>{reader.name}</strong>: {reader.description}
-              </p>
+              <div key={reader.id} className="flex flex-wrap items-baseline gap-x-2">
+                <p>
+                  <strong>{reader.name}</strong>: {reader.short}
+                </p>
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0"
+                      aria-label={`More info about the ${reader.name} reader`}
+                    >
+                      <Info aria-hidden="true" /> More info
+                    </Button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      align="start"
+                      sideOffset={8}
+                      collisionPadding={16}
+                      aria-labelledby={`reader-${reader.id}-title`}
+                      aria-describedby={`reader-${reader.id}-description`}
+                      className="z-50 max-h-[var(--radix-popover-content-available-height)] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border bg-popover p-4 text-sm text-popover-foreground shadow-md"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <h3 id={`reader-${reader.id}-title`} className="font-medium">
+                          {reader.name} reader
+                        </h3>
+                        <Popover.Close asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Close reader information"
+                          >
+                            <X aria-hidden="true" />
+                          </Button>
+                        </Popover.Close>
+                      </div>
+                      <div
+                        id={`reader-${reader.id}-description`}
+                        className="space-y-3 leading-relaxed [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5"
+                      >
+                        <SpectrumReaderDescription readerId={reader.id} />
+                      </div>
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              </div>
             ))}
-            <p>
-              Blank lines and # comments are ignored. m/z must be positive; intensity, S/N, and RT
-              must be nonnegative. All mapped values must be finite.
-            </p>
           </div>
-          <p id="spectrum-memory" className="text-xs text-muted-foreground">
-            Measurements are held in a local, in-memory DuckDB database while you navigate the app.
-            Refreshing or closing the page clears it; nothing is saved to disk yet.
-          </p>
-          <p id="spectrum-performance" className="text-xs text-muted-foreground">
-            No fixed file-size limit is enforced. Text is streamed in bounded chunks, but the
-            in-memory database may still require substantial memory. GC/LC imports initially display
-            the first RT slice. Selecting another file cancels the current import.
-          </p>
           {state.status === "importing" && (
             <div className="flex items-center gap-3">
               <progress
