@@ -350,11 +350,11 @@ function SpectrumInspection({ dataset, dark }: { dataset: SpectrumDataset; dark:
           <CardHeader>
             <CardTitle>Total ion chromatogram (TIC)</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Original intensities summed at each RT, in the file&apos;s input units. Click a point
-              to display that exact RT slice in the spectrum and peak list. Use the numeric RT
-              bounds above for an inclusive range. Zoom or drag the RT slider for finer detail; Home
-              or Restore resets the axis. Arrow keys inspect displayed points; Enter or Space
-              selects.
+              Original intensities summed at each RT, in the file&apos;s input units. Click anywhere
+              inside the plot to snap to the nearest displayed RT and show that slice in the
+              spectrum and peak list. Use the numeric RT bounds above for an inclusive range. Zoom
+              or drag the RT slider for finer detail; Home or Restore resets the axis. Arrow keys
+              inspect displayed points; Enter or Space selects.
             </p>
           </CardHeader>
           <CardContent className="min-w-0">

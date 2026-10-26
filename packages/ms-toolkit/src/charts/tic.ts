@@ -22,6 +22,30 @@ export interface TicViewportSource {
   query(request: TicViewportRequest): Promise<TicViewportResult>;
 }
 
+/** Nearest displayed RT within the viewport; ties keep the earlier RT, or -1 if empty. */
+export function findNearestTicPointIndex(
+  points: readonly TicPoint[],
+  retentionTime: number,
+  rtRange: readonly [number, number],
+): number {
+  ticBinCount({ rtRange, binCount: 1 });
+  if (!Number.isFinite(retentionTime)) {
+    throw new RangeError("TIC click RT must be finite.");
+  }
+  let nearest = -1;
+  let distance = Infinity;
+  for (let index = 0; index < points.length; index++) {
+    const rt = points[index].retentionTime;
+    if (rt < rtRange[0] || rt > rtRange[1]) continue;
+    const nextDistance = Math.abs(rt - retentionTime);
+    if (nextDistance < distance) {
+      nearest = index;
+      distance = nextDistance;
+    }
+  }
+  return nearest;
+}
+
 /** One complete scan total per bin, not a sum of neighboring scan totals. */
 export function ticBinCount(request: TicViewportRequest): number {
   const [minimum, maximum] = request.rtRange;
@@ -102,6 +126,7 @@ export function createTicChart(
       splitLine: { lineStyle: { color: textColor, opacity: 0.15 } },
     },
     tooltip: {
+      show: points.length > 0,
       trigger: "axis",
       renderMode: "richText",
       valueFormatter: (value) => {

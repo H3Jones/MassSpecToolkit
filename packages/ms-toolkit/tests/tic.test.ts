@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { init, type EChartsType } from "echarts";
-import { createTicChart, ticBinCount } from "../src/charts/tic.ts";
+import { createTicChart, findNearestTicPointIndex, ticBinCount } from "../src/charts/tic.ts";
 
 const charts: EChartsType[] = [];
 afterEach(() => {
@@ -21,6 +21,44 @@ function render(
 }
 
 describe("TIC chart", () => {
+  it.each([
+    [0, 0],
+    [0.25, 0],
+    [0.5, 0],
+    [0.75, 1],
+    [1, 1],
+    [2.5, 1],
+    [3.75, 2],
+    [4, 2],
+  ])("snaps RT %s to displayed point %s, independent of intensity", (retentionTime, index) => {
+    const points = Object.freeze([
+      Object.freeze({ retentionTime: 0, intensity: 0 }),
+      Object.freeze({ retentionTime: 1, intensity: 1e9 }),
+      Object.freeze({ retentionTime: 4, intensity: 10 }),
+    ]);
+    expect(findNearestTicPointIndex(points, retentionTime, [0, 4])).toBe(index);
+  });
+
+  it("only snaps to points inside the current RT viewport", () => {
+    const points = [
+      { retentionTime: 0, intensity: 10 },
+      { retentionTime: 2, intensity: 20 },
+      { retentionTime: 4, intensity: 30 },
+    ];
+    expect(findNearestTicPointIndex(points, 0.5, [0.5, 3.5])).toBe(1);
+    expect(findNearestTicPointIndex(points, 3.5, [0.5, 3.5])).toBe(1);
+    expect(findNearestTicPointIndex(points, 1, [0.5, 1.5])).toBe(-1);
+    expect(findNearestTicPointIndex([], 1, [0, 4])).toBe(-1);
+    expect(findNearestTicPointIndex([points[0]], 0.25, [0, 0])).toBe(0);
+  });
+
+  it("rejects non-finite click coordinates and invalid RT viewports", () => {
+    for (const rt of [NaN, Infinity, -Infinity]) {
+      expect(() => findNearestTicPointIndex([], rt, [0, 1])).toThrow("TIC click RT");
+    }
+    expect(() => findNearestTicPointIndex([], 0, [1, 0])).toThrow("TIC RT bounds");
+  });
+
   it.each([
     [109685260.796875, "1.097e+8"],
     [150, "1.500e+2"],
@@ -84,6 +122,17 @@ describe("TIC chart", () => {
     expect(chart.getOption().dataZoom).toMatchObject([{ startValue: 0.5, endValue: 1.5 }, {}]);
     chart.dispatchAction({ type: "restore" });
     expect(chart.getOption().dataZoom).toMatchObject([{ startValue: 0, endValue: 2 }, {}]);
+  });
+
+  it("disables tooltips for empty viewports and restores them when scan totals return", () => {
+    const chart = render();
+    expect(chart.getOption().tooltip).toMatchObject([{ show: true }]);
+    const empty = createTicChart([], [0, 2]);
+    chart.setOption({ series: empty.series, tooltip: empty.tooltip });
+    expect(chart.getOption().tooltip).toMatchObject([{ show: false }]);
+    const loaded = createTicChart([{ retentionTime: 1, intensity: 100 }], [0, 2]);
+    chart.setOption({ series: loaded.series, tooltip: loaded.tooltip });
+    expect(chart.getOption().tooltip).toMatchObject([{ show: true }]);
   });
 
   it("gives single RT zero a nonzero axis span", () => {

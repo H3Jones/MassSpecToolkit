@@ -12,6 +12,7 @@ import {
 import { SVGRenderer } from "echarts/renderers";
 import {
   createTicChart,
+  findNearestTicPointIndex,
   ticBinCount,
   MAX_RENDERED_TIC_POINTS,
   type TicPoint,
@@ -46,7 +47,7 @@ template.innerHTML = `
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   </style>
   <div class="chart" part="chart" role="region" tabindex="0"
-    aria-label="Total ion chromatogram. Click a point to select its RT. Use left and right arrows to inspect points, Enter or Space to select, and Home to restore the RT axis."></div>
+    aria-label="Total ion chromatogram. Click inside the plot to select the nearest displayed RT. Use left and right arrows to inspect points, Enter or Space to select, and Home to restore the RT axis."></div>
   <p class="status" part="status" role="status">No TIC source.</p>
   <p class="sr-only" role="status" aria-live="polite"></p>
 `;
@@ -57,7 +58,9 @@ template.innerHTML = `
  * Assign `viewportSource` for bounded asynchronous queries of complete scan totals.
  * Zooming queries finer samples; ties in a bin retain the earliest RT.
  * `selectedRange` highlights an applied inclusive RT range without changing the viewport.
- * Clicking a displayed point or pressing Enter/Space dispatches `ms-rt-select`
+ * Plot clicks snap to the nearest displayed RT, regardless of intensity.
+ * Equidistant clicks select the earlier RT; clicks outside the plot are ignored.
+ * Clicking the plot or pressing Enter/Space dispatches `ms-rt-select`
  * (detail: TicPoint); the consumer applies [retentionTime, retentionTime].
  * Query failures dispatch `ms-error` (detail: Error), retaining the previous plot.
  */
@@ -154,13 +157,8 @@ export class MsTic extends HTMLElement {
         this.#host.setOption(
           createTicChart(this.#points, this.#source.rtRange, this.#selectedRange, this.#colors()),
         );
-        this.#host.on("click", (event) => {
-          if (
-            event.componentType === "series" &&
-            event.seriesId === "tic" &&
-            typeof event.dataIndex === "number"
-          )
-            this.#select(event.dataIndex);
+        this.#host.getZr().on("click", (event) => {
+          this.#click(event.offsetX, event.offsetY);
         });
         this.#host.on("datazoom", () => {
           const zooms = this.#host?.getOption().dataZoom;
@@ -215,6 +213,7 @@ export class MsTic extends HTMLElement {
     this.#host.setOption(
       {
         series: option.series,
+        tooltip: option.tooltip,
         textStyle: option.textStyle,
         xAxis: option.xAxis,
         yAxis: option.yAxis,
@@ -282,7 +281,8 @@ export class MsTic extends HTMLElement {
         this.#selectedRange,
         this.#colors(),
       );
-      this.#host.setOption({ series: option.series }, { silent: true });
+      this.#host.dispatchAction({ type: "hideTip" });
+      this.#host.setOption({ series: option.series, tooltip: option.tooltip }, { silent: true });
       this.#points = result.points.map((point) => ({ ...point }));
       this.#active = -1;
       this.#announcement.textContent = "";
@@ -313,6 +313,29 @@ export class MsTic extends HTMLElement {
     this.dispatchEvent(
       new CustomEvent<TicPoint>("ms-rt-select", { detail: { ...point }, bubbles: true }),
     );
+  }
+
+  #click(x: number, y: number): void {
+    if (
+      !this.#host ||
+      !this.#range ||
+      this.#loading ||
+      this.#lastQuery !== this.#key() ||
+      !this.#host.containPixel({ gridIndex: 0 }, [x, y])
+    )
+      return;
+    try {
+      const retentionTime: unknown = this.#host.convertFromPixel({ xAxisIndex: 0 }, x);
+      if (typeof retentionTime !== "number" || !Number.isFinite(retentionTime)) {
+        throw new Error("The TIC could not determine the clicked RT.");
+      }
+      const index = findNearestTicPointIndex(this.#points, retentionTime, this.#range);
+      if (index < 0) return;
+      this.#active = index;
+      this.#select(index);
+    } catch (error) {
+      this.#error(error);
+    }
   }
 
   #keydown(event: KeyboardEvent): void {
