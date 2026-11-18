@@ -1,0 +1,17 @@
+{
+	"mcpServers": {
+		"mass-spec-toolkit": {
+			"type": "stdio",
+			"command": "cargo",
+			"args": [
+				"run",
+				"--quiet",
+				"-p",
+				"ms-mcp"
+			],
+			"tools": [
+				"*"
+			]
+		}
+	}
+}

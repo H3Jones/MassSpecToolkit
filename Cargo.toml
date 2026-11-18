@@ -1,3 +1,9 @@
 [workspace]
-members = ["crates/ms-core", "crates/ms-readers", "crates/ms-wasm", "crates/ms-py"]
+members = [
+    "crates/ms-core",
+    "crates/ms-readers",
+    "crates/ms-wasm",
+    "crates/ms-py",
+    "crates/ms-mcp",
+]
 resolver = "3"
