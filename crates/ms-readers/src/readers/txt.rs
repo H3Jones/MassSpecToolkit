@@ -82,7 +82,9 @@ pub struct TxtFormat {
 }
 
 impl TxtFormat {
-    fn validate(&self) -> Result<(), TxtReadError> {
+    /// Checks the delimiter and that mapped columns are distinct and in range.
+    /// [`read`] and [`TxtStreamReader::new`] also validate.
+    pub fn validate(&self) -> Result<(), TxtReadError> {
         if matches!(self.delimiter, TxtDelimiter::Character('\r' | '\n' | '\0')) {
             return Err(TxtReadError::InvalidSpec(
                 "delimiter cannot be a line ending or NUL",

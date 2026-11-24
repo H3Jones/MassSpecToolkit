@@ -54,6 +54,14 @@ Use `--help` to see arguments. Invalid formulas or failed calculations print an
 error to stderr and exit with a nonzero status. Neutral mass-to-charge values
 appear as `null`.
 
+`read_txt.py` reads a text peak list (guessing its layout) and prints the peaks,
+or an RT selection in seconds, as JSON:
+
+```sh
+uv run python examples/read_txt.py ../ms-readers/tests/fixtures/rt_peaks.csv
+uv run python examples/read_txt.py ../ms-readers/tests/fixtures/rt_peaks.csv --rt-unit minutes --rt 330 --mode exact
+```
+
 ## API
 
 ```python
@@ -110,3 +118,38 @@ range raise `OverflowError`.
 Unlike the browser binding, this API never retries with lower coverage:
 increase `max_states` or explicitly reduce `coverage` when a calculation
 exceeds the state limit.
+
+## Reading spectra
+
+```python
+import ms_py
+
+run = ms_py.read_txt("peaks.csv", rt_unit="minutes")  # layout guessed
+print(run.peak_count, run.summary.rt_bounds)  # RT in seconds
+selected = run.get_rt_slice(330.0, mode="nearest")  # or mode="exact"
+region = run.get_rt_range(300.0, 360.0)  # start <= RT < end
+print(selected.peak_ids, selected.mz, selected.intensity, selected.peak_rt)
+
+layout = ms_py.TxtFormat(skip_lines=1, column_count=19, mz_column=1, intensity_column=2)
+composer = ms_py.read_txt("export.csv", layout)
+```
+
+- `read_txt(path, format=None, *, rt_unit=None, source_id=None)` reads a text
+  peak list into a flat `Run`. Without `format`, `guess_txt_format(path)` infers
+  the layout from headers such as `m/z`, `intensity`, `rt` and `snr`; otherwise
+  pass a `TxtFormat` (zero-based columns, `delimiter` one character or
+  `"whitespace"`). `rt_unit` is the file's RT unit (`"seconds"`, the default,
+  `"minutes"` or `"milliseconds"`); RTs are stored and queried in seconds.
+  `source_id` defaults to the filename.
+- `Run` mirrors the Rust `ms_core::run::Run`: `layout`, `schema`, `source`,
+  `summary`, `peak_count`, `scan_count`, `is_empty`, the columns `mz`,
+  `intensity`, `signal_to_noise`, `peak_rt` and `peak_ids`, plus `peak(row)` and
+  `peaks()` returning `Peak` values. Absent optional columns are `None`.
+- `get_rt_slice(rt, *, mode)`, `get_rt_range(start, end)` and
+  `get_ms_level(level)` return new `Run`s preserving peak IDs and source. Flat
+  text runs have no MS level, so `get_ms_level` raises `ValueError`.
+
+Columns are returned as fresh lists. Missing files raise `FileNotFoundError`
+(an `OSError`); invalid layouts, malformed data, unsupported units, invalid
+queries or a missing RT column raise `ValueError`. Reading releases the GIL.
+Scan-based runs (e.g. mzML) and per-scan `spectra()` are not exposed yet.

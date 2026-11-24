@@ -8,6 +8,8 @@ use ms_core::isotopes::{
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+mod run;
+
 #[derive(Clone)]
 #[pyclass(frozen, get_all, module = "ms_py")]
 struct AtomCount {
@@ -207,6 +209,7 @@ fn ms_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(evaluate_ion, module)?)?;
     module.add_function(wrap_pyfunction!(mass_split, module)?)?;
     module.add_function(wrap_pyfunction!(fine_isotope_distribution, module)?)?;
+    run::register(module)?;
     module.add("ELECTRON_MASS", ELECTRON_MASS)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

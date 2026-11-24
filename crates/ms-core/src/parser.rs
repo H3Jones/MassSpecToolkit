@@ -661,7 +661,7 @@ mod tests {
         let grouped = Formula::parse("(Me)2").unwrap();
         assert_eq!(grouped.atom_counts()[0].count, 2);
         assert_eq!(grouped.atom_counts()[1].count, 6);
-    }    
+    }
 
     #[test]
     fn reports_overflow_when_multiplying_a_ligand_alias() {
