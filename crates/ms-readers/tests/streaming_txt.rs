@@ -1,7 +1,17 @@
-use ms_core::spectrum::MassSpectrum;
-use ms_readers::readers::txt::{TxtDelimiter, TxtFormat, TxtStreamReader, guess_txt_format, read};
+#![cfg(feature = "txt")]
 
-fn streamed(input: &str, spec: Option<TxtFormat>, chunk_chars: usize) -> MassSpectrum {
+use ms_core::spectrum::Peak;
+use ms_readers::readers::txt::{
+    TxtDelimiter, TxtFormat, TxtReadError, TxtReadOptions, TxtStreamReader, guess_txt_format,
+};
+
+/// Complete-reader rows; default seconds leave RT values unchanged.
+fn read(input: &[u8], spec: &TxtFormat) -> Result<Vec<Peak>, TxtReadError> {
+    ms_readers::readers::txt::read(input, spec, &TxtReadOptions::default())
+        .map(|run| run.peaks().collect())
+}
+
+fn streamed(input: &str, spec: Option<TxtFormat>, chunk_chars: usize) -> Vec<Peak> {
     let mut reader = TxtStreamReader::new(spec).unwrap();
     let mut peaks = Vec::new();
     let chars: Vec<_> = input.chars().collect();
@@ -15,7 +25,7 @@ fn streamed(input: &str, spec: Option<TxtFormat>, chunk_chars: usize) -> MassSpe
     peaks.extend(reader.finish().unwrap());
     assert!(reader.finish().is_err());
     assert!(reader.push_chunk("1 2\n").is_err());
-    MassSpectrum::new(peaks)
+    peaks
 }
 
 #[test]
@@ -32,7 +42,6 @@ fn matches_complete_reader_at_every_character_boundary() {
         for width in 1..=input.chars().count() {
             let actual = streamed(input, None, width);
             assert_eq!(actual, expected);
-            assert_eq!(actual.metadata("file.csv"), expected.metadata("file.csv"));
         }
     }
 }
@@ -53,7 +62,7 @@ fn preserves_explicit_preambles_and_empty_inputs() {
         streamed(input, Some(spec.clone()), 1),
         read(input.as_bytes(), &spec).unwrap()
     );
-    assert!(streamed("", Some(spec), 1).peaks().is_empty());
+    assert!(streamed("", Some(spec), 1).is_empty());
 }
 
 #[test]

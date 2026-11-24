@@ -1,27 +1,26 @@
-//! Measured centroid spectra and their candidate mass assignments.
+//! Measured peak values and their candidate mass assignments.
 //!
+//! Collections of peaks live in [`crate::run::Run`]; a [`Peak`] is a single
+//! validated row, used both to build runs and to view their rows.
 //! Intensities retain their original scale; they are not isotope probabilities.
-//! Spectrum constructors preserve input order and duplicate m/z values.
 //!
 //! ```
 //! use ms_core::{
 //!     assignment::{ElementRange, MassTolerance, assign_mass},
 //!     ion::Charge,
-//!     spectrum::{AnnotatedMassSpectrum, AnnotatedPeak, MassSpectrum, Peak},
+//!     spectrum::{AnnotatedPeak, Peak},
 //! };
 //!
 //! let peak = Peak::new(180.06284, 1250.0, Some(20.0))?;
-//! let spectrum = MassSpectrum::new(vec![peak]);
 //! let ranges = ["C6", "H12", "O6"]
 //!     .map(|range| ElementRange::parse(range).unwrap());
 //! let assignments = assign_mass(
 //!     peak.mz(), Charge::Positive(1), &ranges, MassTolerance::Ppm(5.0),
 //! )?;
-//! let annotated_peak = AnnotatedPeak::new(peak, assignments)?;
-//! let annotated = AnnotatedMassSpectrum::new(vec![annotated_peak]);
+//! let annotated = AnnotatedPeak::new(peak, assignments)?;
 //!
-//! assert_eq!(spectrum.peaks()[0].intensity(), 1250.0);
-//! assert_eq!(annotated.peaks()[0].assignments().len(), 1);
+//! assert_eq!(annotated.peak().intensity(), 1250.0);
+//! assert_eq!(annotated.assignments().len(), 1);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -63,7 +62,25 @@ impl Peak {
         })
     }
 
-    /// Attaches a finite, nonnegative retention time in the original input units.
+    /// Row values from an already validated run; RT is in seconds.
+    pub(crate) fn from_validated(
+        mz: f64,
+        intensity: f64,
+        signal_to_noise: Option<f64>,
+        retention_time: Option<f64>,
+    ) -> Self {
+        Self {
+            mz,
+            intensity,
+            signal_to_noise,
+            retention_time,
+        }
+    }
+
+    /// Attaches a finite, nonnegative retention time.
+    ///
+    /// Reader records keep the source's input unit; rows viewed from a
+    /// [`crate::run::Run`] report seconds.
     pub fn with_retention_time(mut self, retention_time: f64) -> Result<Self, SpectrumError> {
         if !retention_time.is_finite() || retention_time < 0.0 {
             return Err(SpectrumError::InvalidRetentionTime);
@@ -88,87 +105,6 @@ impl Peak {
     /// Returns S/N when available; `None` does not imply zero.
     pub fn signal_to_noise(&self) -> Option<f64> {
         self.signal_to_noise
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SpectrumType {
-    Direct,
-    Hyphenated,
-}
-
-/// Full-file bounds in original measurement units, independent of any filtered view.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SpectrumMetadata {
-    pub filename: String,
-    pub spectrum_type: SpectrumType,
-    pub peak_count: usize,
-    pub minimum_mz: f64,
-    pub maximum_mz: f64,
-    pub minimum_intensity: f64,
-    pub maximum_intensity: f64,
-    pub minimum_retention_time: Option<f64>,
-    pub maximum_retention_time: Option<f64>,
-}
-
-impl SpectrumMetadata {
-    pub fn from_peak(filename: impl Into<String>, peak: Peak) -> Self {
-        let mut metadata = Self {
-            filename: filename.into(),
-            spectrum_type: SpectrumType::Direct,
-            peak_count: 0,
-            minimum_mz: peak.mz(),
-            maximum_mz: peak.mz(),
-            minimum_intensity: peak.intensity(),
-            maximum_intensity: peak.intensity(),
-            minimum_retention_time: None,
-            maximum_retention_time: None,
-        };
-        metadata.include_peak(peak);
-        metadata
-    }
-
-    /// Updates full-file bounds without retaining the measurement.
-    pub fn include_peak(&mut self, peak: Peak) {
-        self.peak_count += 1;
-        self.minimum_mz = self.minimum_mz.min(peak.mz());
-        self.maximum_mz = self.maximum_mz.max(peak.mz());
-        self.minimum_intensity = self.minimum_intensity.min(peak.intensity());
-        self.maximum_intensity = self.maximum_intensity.max(peak.intensity());
-        if let Some(rt) = peak.retention_time() {
-            self.spectrum_type = SpectrumType::Hyphenated;
-            self.minimum_retention_time =
-                Some(self.minimum_retention_time.map_or(rt, |min| min.min(rt)));
-            self.maximum_retention_time =
-                Some(self.maximum_retention_time.map_or(rt, |max| max.max(rt)));
-        }
-    }
-}
-
-/// An unannotated centroid spectrum, which may be empty.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MassSpectrum {
-    peaks: Vec<Peak>,
-}
-
-impl MassSpectrum {
-    /// Keeps every peak in input order, without sorting, merging, or normalization.
-    pub fn new(peaks: Vec<Peak>) -> Self {
-        Self { peaks }
-    }
-
-    pub fn peaks(&self) -> &[Peak] {
-        &self.peaks
-    }
-
-    /// Empty spectra have no bounds. Any measured RT, including zero, is hyphenated data.
-    pub fn metadata(&self, filename: impl Into<String>) -> Option<SpectrumMetadata> {
-        let (first, remaining) = self.peaks.split_first()?;
-        let mut metadata = SpectrumMetadata::from_peak(filename, *first);
-        for peak in remaining {
-            metadata.include_peak(*peak);
-        }
-        Some(metadata)
     }
 }
 
@@ -201,23 +137,6 @@ impl AnnotatedPeak {
 
     pub fn assignments(&self) -> &[MassAssignment] {
         &self.assignments
-    }
-}
-
-/// A centroid spectrum retaining both assigned and unassigned peaks.
-#[derive(Clone, Debug)]
-pub struct AnnotatedMassSpectrum {
-    peaks: Vec<AnnotatedPeak>,
-}
-
-impl AnnotatedMassSpectrum {
-    /// Keeps every peak in input order, including duplicates; an empty list is valid.
-    pub fn new(peaks: Vec<AnnotatedPeak>) -> Self {
-        Self { peaks }
-    }
-
-    pub fn peaks(&self) -> &[AnnotatedPeak] {
-        &self.peaks
     }
 }
 
@@ -281,50 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn metadata_describes_the_full_direct_spectrum() {
-        let spectrum = MassSpectrum::new(vec![
-            Peak::new(57.0, 250.0, None).unwrap(),
-            Peak::new(43.0, 1000.0, None).unwrap(),
-            Peak::new(57.0, 0.0, None).unwrap(),
-        ]);
-        assert_eq!(
-            spectrum.metadata("direct.asc"),
-            Some(SpectrumMetadata {
-                filename: "direct.asc".into(),
-                spectrum_type: SpectrumType::Direct,
-                peak_count: 3,
-                minimum_mz: 43.0,
-                maximum_mz: 57.0,
-                minimum_intensity: 0.0,
-                maximum_intensity: 1000.0,
-                minimum_retention_time: None,
-                maximum_retention_time: None,
-            })
-        );
-        assert_eq!(MassSpectrum::new(vec![]).metadata("empty.asc"), None);
-    }
-
-    #[test]
-    fn metadata_classifies_zero_and_single_retention_times_as_hyphenated() {
-        let peak = Peak::new(43.0, 100.0, None).unwrap();
-        let spectrum = MassSpectrum::new(vec![peak.with_retention_time(0.0).unwrap()]);
-        let metadata = spectrum.metadata("zero.csv").unwrap();
-        assert_eq!(metadata.spectrum_type, SpectrumType::Hyphenated);
-        assert_eq!(metadata.minimum_retention_time, Some(0.0));
-        assert_eq!(metadata.maximum_retention_time, Some(0.0));
-
-        let spectrum = MassSpectrum::new(vec![
-            peak,
-            peak.with_retention_time(2.5).unwrap(),
-            peak.with_retention_time(2.4).unwrap(),
-        ]);
-        let metadata = spectrum.metadata("gc.csv").unwrap();
-        assert_eq!(metadata.peak_count, 3);
-        assert_eq!(metadata.minimum_retention_time, Some(2.4));
-        assert_eq!(metadata.maximum_retention_time, Some(2.5));
-    }
-
-    #[test]
     fn validates_optional_retention_time() {
         let peak = Peak::new(43.0, 100.0, None).unwrap();
         assert_eq!(peak.retention_time(), None);
@@ -375,17 +250,6 @@ mod tests {
             assert_eq!(peak.intensity(), value);
             assert_eq!(peak.signal_to_noise(), Some(value));
         }
-    }
-
-    #[test]
-    fn preserves_unannotated_peak_order_duplicates_and_intensities() {
-        let first = Peak::new(200.0, 500.0, None).unwrap();
-        let second = Peak::new(100.0, 250.0, Some(10.0)).unwrap();
-        let peaks = vec![first, second, first];
-        let spectrum = MassSpectrum::new(peaks.clone());
-        assert_eq!(spectrum.peaks(), peaks);
-        assert_eq!(spectrum.clone(), spectrum);
-        assert!(MassSpectrum::new(vec![]).peaks().is_empty());
     }
 
     #[test]
@@ -444,25 +308,6 @@ mod tests {
         let annotated = AnnotatedPeak::new(peak, assignments).unwrap();
         assert_eq!(annotated.assignments().len(), 1);
         assert_eq!(annotated.assignments()[0].error_da(), 0.0);
-    }
-
-    #[test]
-    fn preserves_assigned_unassigned_and_duplicate_peaks_in_order() {
-        let peak = Peak::new(18.01, 500.0, None).unwrap();
-        let other_peak = Peak::new(10.0, 250.0, Some(10.0)).unwrap();
-        let assigned = AnnotatedPeak::new(peak, vec![assignment("H2O", peak.mz())]).unwrap();
-        let unassigned = AnnotatedPeak::new(other_peak, vec![]).unwrap();
-        let spectrum = AnnotatedMassSpectrum::new(vec![assigned.clone(), unassigned, assigned]);
-        let cloned = spectrum.clone();
-        let peaks = cloned.peaks();
-        assert_eq!(peaks.len(), 3);
-        assert_eq!(*peaks[0].peak(), peak);
-        assert_eq!(*peaks[1].peak(), other_peak);
-        assert_eq!(*peaks[2].peak(), peak);
-        assert_eq!(peaks[0].assignments().len(), 1);
-        assert!(peaks[1].assignments().is_empty());
-        assert_eq!(peaks[2].assignments().len(), 1);
-        assert!(AnnotatedMassSpectrum::new(vec![]).peaks().is_empty());
     }
 
     #[test]
