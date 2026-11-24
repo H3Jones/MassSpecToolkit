@@ -229,6 +229,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ms-examples"
+version = "0.1.0"
+dependencies = [
+ "ms-core",
+ "ms-readers",
+]
+
+[[package]]
 name = "ms-py"
 version = "0.1.0"
 dependencies = [

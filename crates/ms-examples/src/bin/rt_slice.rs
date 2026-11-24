@@ -5,7 +5,7 @@ use ms_readers::readers::txt::{TxtReadOptions, guess_txt_format, read};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples")
+        .join("data")
         .join("rt_peaks.csv");
     // Guessing consumes its preview, so the file is opened again for reading.
     let format = guess_txt_format(BufReader::new(File::open(&path)?))?;

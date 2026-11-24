@@ -9,7 +9,3 @@ ms-core = { path = "../ms-core" }
 [features]
 default = ["txt"]
 txt = []
-
-[[example]]
-name = "rt_slice"
-required-features = ["txt"]
