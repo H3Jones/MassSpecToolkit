@@ -124,18 +124,19 @@ exceeds the state limit.
 ```python
 import ms_py
 
-run = ms_py.read_txt("peaks.csv", rt_unit="minutes")  # layout guessed
+run = ms_py.Run.from_text_file("peaks.csv", rt_unit="minutes")  # layout guessed
 print(run.peak_count, run.summary.rt_bounds)  # RT in seconds
 selected = run.get_rt_slice(330.0, mode="nearest")  # or mode="exact"
 region = run.get_rt_range(300.0, 360.0)  # start <= RT < end
 print(selected.peak_ids, selected.mz, selected.intensity, selected.peak_rt)
 
 layout = ms_py.TxtFormat(skip_lines=1, column_count=19, mz_column=1, intensity_column=2)
-composer = ms_py.read_txt("export.csv", layout)
+composer = ms_py.Run.from_text_file("export.csv", layout)
 ```
 
-- `read_txt(path, format=None, *, rt_unit=None, source_id=None)` reads a text
-  peak list into a flat `Run`. Without `format`, `guess_txt_format(path)` infers
+- `Run.from_text_file(path, format=None, *, rt_unit=None, source_id=None)` reads
+  a text peak list into a flat `Run`. `ms_py.read_txt()` remains available with
+  the same arguments. Without `format`, `guess_txt_format(path)` infers
   the layout from headers such as `m/z`, `intensity`, `rt` and `snr`; otherwise
   pass a `TxtFormat` (zero-based columns, `delimiter` one character or
   `"whitespace"`). `rt_unit` is the file's RT unit (`"seconds"`, the default,

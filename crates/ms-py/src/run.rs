@@ -9,6 +9,7 @@ use ms_readers::readers::txt::{
 };
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 fn run_error(error: RunError) -> PyErr {
     PyValueError::new_err(error.to_string())
@@ -101,6 +102,24 @@ struct PyRun(Run);
 
 #[pymethods]
 impl PyRun {
+    /// Reads a text peak-list file into an eager flat run.
+    ///
+    /// `path` is a filesystem path, not text content. The layout is guessed
+    /// unless `format` is supplied. `rt_unit` describes input RTs; returned
+    /// RTs and queries are in seconds. `source_id` defaults to the filename.
+    #[classmethod]
+    #[pyo3(signature = (path, format=None, *, rt_unit=None, source_id=None))]
+    fn from_text_file(
+        _cls: &Bound<'_, PyType>,
+        py: Python<'_>,
+        path: PathBuf,
+        format: Option<&PyTxtFormat>,
+        rt_unit: Option<&str>,
+        source_id: Option<String>,
+    ) -> PyResult<Self> {
+        read_txt(py, path, format, rt_unit, source_id)
+    }
+
     #[getter]
     fn layout(&self) -> &'static str {
         layout_name(self.0.layout())

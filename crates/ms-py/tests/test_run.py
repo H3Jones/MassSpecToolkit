@@ -8,6 +8,44 @@ RT_PEAKS = FIXTURES / "rt_peaks.csv"
 
 
 class ReadTxtTests(unittest.TestCase):
+    def test_from_text_file(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        self.assertIsInstance(run, ms_py.Run)
+        self.assertEqual(run.peak_ids, [0, 1, 2, 3, 4])
+        self.assertEqual(run.peak_rt, [6.0, 5.5, 5.5, 7.0, 0.0])
+        self.assertEqual(run.source.source_id, "rt_peaks.csv")
+        self.assertEqual(run.source.rt_unit_origin, "default")
+
+        layout = ms_py.TxtFormat(
+            skip_lines=1,
+            column_count=4,
+            mz_column=1,
+            intensity_column=2,
+            retention_time_column=0,
+            signal_to_noise_column=3,
+        )
+        explicit = ms_py.Run.from_text_file(
+            str(RT_PEAKS), format=layout, rt_unit="minutes", source_id="sample"
+        )
+        self.assertEqual(explicit.mz, run.mz)
+        self.assertEqual(explicit.intensity, run.intensity)
+        self.assertEqual(explicit.signal_to_noise, run.signal_to_noise)
+        self.assertEqual(explicit.peak_rt, [360.0, 330.0, 330.0, 420.0, 0.0])
+        self.assertEqual(explicit.source.source_id, "sample")
+        self.assertEqual(explicit.source.rt_unit_origin, "caller")
+        self.assertEqual(explicit.get_rt_slice(330.0, mode="exact").peak_ids, [1, 2])
+
+    def test_from_text_file_errors(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            ms_py.Run.from_text_file(FIXTURES / "missing.csv")
+        with self.assertRaisesRegex(ValueError, "hours"):
+            ms_py.Run.from_text_file(RT_PEAKS, rt_unit="hours")
+        wrong_count = ms_py.TxtFormat(
+            skip_lines=1, column_count=3, mz_column=1, intensity_column=2
+        )
+        with self.assertRaisesRegex(ValueError, "line 2"):
+            ms_py.Run.from_text_file(RT_PEAKS, wrong_count)
+
     def test_guess_and_read_rt_csv(self) -> None:
         guessed = ms_py.guess_txt_format(RT_PEAKS)
         self.assertEqual(guessed.delimiter, ",")

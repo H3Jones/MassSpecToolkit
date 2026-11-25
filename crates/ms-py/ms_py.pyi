@@ -130,6 +130,15 @@ class RunSummary:
     def rt_bounds(self) -> tuple[float, float] | None: ...
 
 class Run:
+    @classmethod
+    def from_text_file(
+        cls,
+        path: str | PathLike[str],
+        format: TxtFormat | None = None,
+        *,
+        rt_unit: RtUnit | None = None,
+        source_id: str | None = None,
+    ) -> Run: ...
     @property
     def layout(self) -> Literal["flat", "scans"]: ...
     @property

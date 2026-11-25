@@ -1,7 +1,7 @@
 import argparse
 import json
 
-import ms_py
+from ms_py import Run
 
 
 def main() -> None:
@@ -16,12 +16,15 @@ def main() -> None:
     )
     parser.add_argument("--rt", type=float, help="Select peaks at this RT, in seconds")
     parser.add_argument(
-        "--mode", choices=["exact", "nearest"], default="nearest", help="RT selection mode"
+        "--mode",
+        choices=["exact", "nearest"],
+        default="nearest",
+        help="RT selection mode",
     )
     args = parser.parse_args()
 
     try:
-        run = ms_py.read_txt(args.path, rt_unit=args.rt_unit)
+        run = Run.from_text_file(args.path, rt_unit=args.rt_unit)
         if args.rt is not None:
             run = run.get_rt_slice(args.rt, mode=args.mode)
     except (OSError, ValueError) as error:
@@ -43,7 +46,9 @@ def main() -> None:
                         "signal_to_noise": peak.signal_to_noise,
                         "retention_time": peak.retention_time,
                     }
-                    for peak_id, peak in zip(run.peak_ids or [], run.peaks(), strict=True)
+                    for peak_id, peak in zip(
+                        run.peak_ids or [], run.peaks(), strict=True
+                    )
                 ],
             },
             indent=2,
