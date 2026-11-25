@@ -1,7 +1,7 @@
 from os import PathLike
-from typing import Literal
+from typing import Any, Literal, TypeAlias
 
-RtUnit = Literal["seconds", "minutes", "milliseconds"]
+RtUnit: TypeAlias = Literal["seconds", "minutes", "milliseconds"]
 
 ELECTRON_MASS: float
 __version__: str
@@ -168,6 +168,10 @@ class Run:
     def get_rt_slice(self, rt: float, *, mode: Literal["exact", "nearest"]) -> Run: ...
     def get_rt_range(self, start: float, end: float) -> Run: ...
     def get_ms_level(self, level: int) -> Run: ...
+    def plot_spectrum(
+        self, *, style: Literal["sticks", "profile"] = "sticks"
+    ) -> Any: ...
+    def plot_rt_mz(self) -> Any: ...
 
 class TxtFormat:
     def __init__(

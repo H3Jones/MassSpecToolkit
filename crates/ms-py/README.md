@@ -3,6 +3,8 @@
 Python bindings for `ms-core`, built with PyO3 and maturin. The distribution is
 named `ms-py`; import it as `ms_py`. Requires Python 3.10+ and a Rust toolchain
 supporting edition 2024 to build from source. Wheels use CPython's stable ABI.
+The public Python package re-exports the native API from `ms_py._core`; Python
+helpers such as plotting live alongside it in `python/ms_py`.
 
 ## Development
 
@@ -154,3 +156,21 @@ Columns are returned as fresh lists. Missing files raise `FileNotFoundError`
 (an `OSError`); invalid layouts, malformed data, unsupported units, invalid
 queries or a missing RT column raise `ValueError`. Reading releases the GIL.
 Scan-based runs (e.g. mzML) and per-scan `spectra()` are not exposed yet.
+
+## Plotting
+
+Plotting needs the optional extra: `pip install ms-py[plot]` (or
+`uv sync --extra plot`). Reading never imports seaborn.
+
+```python
+plot = run.get_rt_slice(330.0, mode="nearest").plot_spectrum()  # or style="profile"
+plot.label(title="Sample").show()  # or .save("spectrum.png"), or .on(ax).plot()
+run.plot_rt_mz().show()  # peak RT against m/z, coloured by intensity
+```
+
+- Methods return an unrendered `seaborn.objects.Plot`; nothing is displayed
+  until you call `.show()`, `.save()` or let a notebook render it.
+- Every peak is drawn as measured: no averaging, normalisation or downsampling,
+  and duplicate m/z values remain separate sticks.
+- `plot_spectrum` refuses runs spanning several RTs or scans; select one with
+  `get_rt_slice()` first.

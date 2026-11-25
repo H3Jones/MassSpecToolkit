@@ -14,6 +14,11 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 
+[project.optional-dependencies]
+plot = ["seaborn>=0.13"]
+
 [tool.maturin]
 bindings = "pyo3"
 features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "ms_py._core"

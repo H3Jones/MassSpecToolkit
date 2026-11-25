@@ -35,7 +35,7 @@ fn optional_repr<T: std::fmt::Debug>(value: Option<T>) -> String {
 
 /// One peak row. RT is in seconds; `None` means the value is absent.
 #[derive(Clone)]
-#[pyclass(name = "Peak", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "Peak", frozen, get_all, module = "ms_py._core")]
 struct PyPeak {
     mz: f64,
     intensity: f64,
@@ -68,7 +68,7 @@ impl PyPeak {
 }
 
 /// Optional-column presence; it survives empty runs and selections.
-#[pyclass(name = "RunSchema", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "RunSchema", frozen, get_all, module = "ms_py._core")]
 struct PyRunSchema {
     layout: &'static str,
     has_rt: bool,
@@ -76,7 +76,7 @@ struct PyRunSchema {
 }
 
 /// Source identity, preserved by selections.
-#[pyclass(name = "SourceInfo", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "SourceInfo", frozen, get_all, module = "ms_py._core")]
 struct PySourceInfo {
     source_id: String,
     filename: String,
@@ -87,7 +87,7 @@ struct PySourceInfo {
 }
 
 /// Counts and bounds for the current run only.
-#[pyclass(name = "RunSummary", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "RunSummary", frozen, get_all, module = "ms_py._core")]
 struct PyRunSummary {
     peak_count: usize,
     scan_count: Option<usize>,
@@ -97,7 +97,7 @@ struct PyRunSummary {
 }
 
 /// A run of peaks. Selections return new runs; RT values and queries are seconds.
-#[pyclass(name = "Run", frozen, module = "ms_py")]
+#[pyclass(name = "Run", frozen, module = "ms_py._core")]
 struct PyRun(Run);
 
 #[pymethods]
@@ -242,6 +242,21 @@ impl PyRun {
         self.0.get_ms_level(level).map(Self).map_err(run_error)
     }
 
+    /// Returns an unrendered `seaborn.objects.Plot` of a single spectrum.
+    #[pyo3(signature = (*, style = "sticks"))]
+    fn plot_spectrum<'py>(slf: &Bound<'py, Self>, style: &str) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("spectrum", (slf, style))
+    }
+
+    /// Returns an unrendered `seaborn.objects.Plot` of peak RT against m/z.
+    fn plot_rt_mz<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("rt_mz", (slf,))
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Run(layout='{}', peak_count={}, source_id='{}')",
@@ -253,7 +268,7 @@ impl PyRun {
 }
 
 /// Text peak-list layout. Column indices are zero-based.
-#[pyclass(name = "TxtFormat", frozen, module = "ms_py")]
+#[pyclass(name = "TxtFormat", frozen, module = "ms_py._core")]
 struct PyTxtFormat(TxtFormat);
 
 #[pymethods]
