@@ -306,6 +306,19 @@ impl PyRun {
             .call_method1("eic", (slf, mz_target, tolerance))
     }
 
+    /// Returns an unrendered Kendrick mass defect plot; `base` is a formula or exact mass.
+    #[pyo3(signature = (base = None))]
+    fn plot_kmd<'py>(
+        slf: &Bound<'py, Self>,
+        base: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let plotting = slf.py().import("ms_py.plotting")?;
+        match base {
+            Some(base) => plotting.call_method1("kmd", (slf, base)),
+            None => plotting.call_method1("kmd", (slf,)),
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Run(layout='{}', peak_count={}, source_id='{}')",

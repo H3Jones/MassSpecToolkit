@@ -256,6 +256,55 @@ class PlotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "retention times"):
             run.plot_rt_mz()
 
+    def test_kmd_groups_ch2_homologues(self) -> None:
+        from ms_py.plotting import kendrick_mass_defects
+
+        ch2 = ms_py.parse_formula("CH2").mass
+        series = [ms_py.parse_formula(f"C{n}H{2 * n + 2}").mass for n in (10, 11, 12)]
+        defects = kendrick_mass_defects(series)
+        self.assertAlmostEqual(defects[0], defects[1], places=9)
+        self.assertAlmostEqual(defects[1], defects[2], places=9)
+        self.assertEqual(kendrick_mass_defects(series, ch2), defects)
+        self.assertAlmostEqual(kendrick_mass_defects([ch2])[0], 0.0, places=12)
+        for base in [0.2, float("nan"), "X"]:
+            with self.subTest(base=base):
+                with self.assertRaises(ValueError):
+                    kendrick_mass_defects([100.0], base)
+
+    def test_kmd_plots_every_peak(self) -> None:
+        from ms_py.plotting import kendrick_mass_defects, kmd
+
+        ax = self.draw(self.run.plot_kmd())
+        expected = kendrick_mass_defects(self.run.mz)
+        self.assertEqual(
+            ax.collections[0].get_offsets().tolist(),
+            [[mz, kmd] for mz, kmd in zip(self.run.mz, expected)],
+        )
+        self.assertEqual(ax.get_ylabel(), "KMD (CH2)")
+        self.assertEqual(
+            self.draw(self.run.plot_kmd(14.0)).get_ylabel(), "KMD (14 Da)"
+        )
+        collection = ax.collections[0]
+        self.assertEqual(collection.get_sizes().tolist(), [4.0] * len(self.run.mz))
+        colors = collection.get_facecolors()
+        self.assertLess(colors[0, 3], 1)
+        self.assertNotEqual(colors[0, :3].tolist(), colors[-1, :3].tolist())
+
+        zero_intensity = SimpleNamespace(
+            mz=[100.0, 200.0, 300.0], intensity=[0.0, 10.0, 100.0]
+        )
+        zero_ax = self.draw(kmd(zero_intensity))
+        zero_colors = zero_ax.collections[0].get_facecolors()
+        self.assertEqual(len(zero_ax.collections[0].get_offsets()), 3)
+        self.assertNotEqual(zero_colors[0, :3].tolist(), zero_colors[-1, :3].tolist())
+
+    def test_kmd_constant_intensity_keeps_all_points(self) -> None:
+        from ms_py.plotting import kmd
+
+        run = SimpleNamespace(mz=[100.0, 200.0], intensity=[5.0, 5.0])
+        ax = self.draw(kmd(run))
+        self.assertEqual(len(ax.collections[0].get_offsets()), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

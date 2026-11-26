@@ -140,8 +140,7 @@ def calculate_tic(run) -> tuple[list[float], list[float]]:
     """Return sorted RTs (seconds) and summed intensities for a flat run.
 
     Peaks sharing an RT contribute to one point. Missing RTs raise ValueError;
-    an empty run with an RT column returns two empty lists. No plotting
-    dependencies are required.
+    an empty run with an RT column returns two empty lists.
     """
     peak_rt = require_rt_dimension(run)
     totals: dict[float, float] = {}
@@ -171,3 +170,43 @@ def eic(run, mz_target, tolerance=0.0):
     data = {"rt": temp.peak_rt, "intensity": temp.intensity}
     plot = so.Plot(data, x="rt", y="intensity")
     return plot.add(so.Line()).label(x="RT (s)", y="Intensity")
+
+
+def kendrick_mass_defects(mz, base="CH2") -> list[float]:
+    """Return ``round(KM) - KM`` for each m/z, where ``KM = mz * nominal / exact``.
+
+    ``base`` is a formula (default CH2) or an exact repeat-unit mass in Da.
+    """
+    if isinstance(base, str):
+        from ms_py import parse_formula
+
+        exact = parse_formula(base).mass
+    else:
+        exact = float(base)
+    nominal = round(exact)
+    if not math.isfinite(exact) or nominal < 1:
+        raise ValueError("Kendrick base must have a nominal mass of at least 1 Da")
+    scale = nominal / exact
+    return [round(km) - km for km in (mass * scale for mass in mz)]
+
+
+def kmd(run, base="CH2"):
+    """Build a Kendrick mass defect (KMD) plot of m/z against KMD."""
+    mz = run.mz
+    kmd_values = kendrick_mass_defects(mz, base)
+    intensity = run.intensity
+    so = _objects()
+    label = base if isinstance(base, str) else f"{float(base):g} Da"
+    data = {"mz": mz, "kmd": kmd_values}
+    minimum = min(intensity, default=0.0)
+    maximum = max(intensity, default=0.0)
+    mark = so.Dot(pointsize=2, alpha=0.65, stroke=0)
+    if minimum < maximum:
+        data["intensity"] = intensity
+        transform = "log" if minimum > 0 else "symlog"
+        plot = so.Plot(data, x="mz", y="kmd", color="intensity")
+        plot = plot.scale(color=so.Continuous(values="magma", trans=transform))
+        return plot.add(mark).label(x="m/z", y=f"KMD ({label})", color="Intensity")
+    else:
+        plot = so.Plot(data, x="mz", y="kmd")
+        return plot.add(mark).label(x="m/z", y=f"KMD ({label})")
