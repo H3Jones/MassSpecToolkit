@@ -315,10 +315,13 @@ impl Run {
         if peaks.rt.is_some() != source.rt_unit.is_some() {
             return Err(RunError::RtUnitMetadataMismatch);
         }
-        let mut identities = HashSet::with_capacity(peak_id.len());
-        for (row, &id) in peak_id.iter().enumerate() {
-            if !identities.insert(id) {
-                return Err(RunError::DuplicatePeakId { row, peak_id: id });
+        // Strictly increasing IDs are already unique, as in text imports.
+        if !peak_id.windows(2).all(|pair| pair[0] < pair[1]) {
+            let mut identities = HashSet::with_capacity(peak_id.len());
+            for (row, &id) in peak_id.iter().enumerate() {
+                if !identities.insert(id) {
+                    return Err(RunError::DuplicatePeakId { row, peak_id: id });
+                }
             }
         }
         if let (Some(values), Some(unit)) = (&mut peaks.rt, source.rt_unit) {
@@ -1103,6 +1106,10 @@ mod tests {
         assert_eq!(
             Run::flat(source(None), vec![8, 2, 8], columns()),
             Err(RunError::DuplicatePeakId { row: 2, peak_id: 8 })
+        );
+        assert_eq!(
+            Run::flat(source(None), vec![2, 2, 8], columns()),
+            Err(RunError::DuplicatePeakId { row: 1, peak_id: 2 })
         );
         let mut with_rt = columns();
         with_rt.rt = Some(vec![None; 3]);
