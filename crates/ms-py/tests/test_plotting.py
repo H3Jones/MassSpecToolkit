@@ -4,6 +4,8 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import ms_py
 
@@ -50,6 +52,73 @@ class OptionalDependencyTests(unittest.TestCase):
             [sys.executable, "-c", script], capture_output=True, text=True, check=True
         )
         self.assertEqual(result.stdout.strip(), "False")
+
+    def test_tic_calculation_works_without_seaborn(self) -> None:
+        script = textwrap.dedent(
+            f"""
+            import sys
+            sys.modules["seaborn"] = None
+            from ms_py import Run
+            run = Run.from_text_file({str(RT_PEAKS)!r})
+            assert run.calculate_tic() == (
+                [0.0, 5.5, 6.0, 7.0], [0.0, 750.0, 400.0, 125.0]
+            )
+            assert "matplotlib" not in sys.modules
+            try:
+                run.plot_tic()
+            except ImportError as error:
+                print(error)
+            else:
+                raise AssertionError("plot_tic should require seaborn")
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        )
+        self.assertIn("pip install ms-py[plot]", result.stdout)
+
+
+class TicTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.run = ms_py.Run.from_text_file(RT_PEAKS)
+
+    def test_calculation_groups_sorts_and_preserves_input(self) -> None:
+        self.assertEqual(
+            self.run.calculate_tic(),
+            ([0.0, 5.5, 6.0, 7.0], [0.0, 750.0, 400.0, 125.0]),
+        )
+        self.assertEqual(self.run.peak_rt, [6.0, 5.5, 5.5, 7.0, 0.0])
+        self.assertEqual(
+            self.run.get_rt_slice(5.5, 6.0).calculate_tic(),
+            ([5.5, 6.0], [750.0, 400.0]),
+        )
+        self.assertEqual(self.run.get_rt_slice(1.0, 2.0).calculate_tic(), ([], []))
+        minutes = ms_py.Run.from_text_file(RT_PEAKS, rt_unit="minutes")
+        self.assertEqual(
+            minutes.calculate_tic(),
+            ([0.0, 330.0, 360.0, 420.0], [0.0, 750.0, 400.0, 125.0]),
+        )
+
+    def test_calculation_requires_complete_rt(self) -> None:
+        from ms_py.plotting import calculate_tic
+
+        layout = ms_py.TxtFormat(
+            skip_lines=1, column_count=4, mz_column=1, intensity_column=2
+        )
+        no_rt = ms_py.Run.from_text_file(RT_PEAKS, layout)
+        for calculate_or_plot in [no_rt.calculate_tic, no_rt.plot_tic]:
+            with self.assertRaisesRegex(ValueError, "retention times"):
+                calculate_or_plot()
+        missing_rt = SimpleNamespace(peak_rt=[1.0, None], intensity=[10.0, 20.0])
+        with self.assertRaisesRegex(ValueError, "every peak"):
+            calculate_tic(missing_rt)
+
+    def test_calculation_rejects_overflow(self) -> None:
+        from ms_py.plotting import calculate_tic
+
+        run = SimpleNamespace(peak_rt=[1.0, 1.0], intensity=[1e308, 1e308])
+        with self.assertRaisesRegex(OverflowError, "total ion intensity"):
+            calculate_tic(run)
 
 
 @unittest.skipIf(so is None, "plotting dependencies are not installed")
@@ -100,8 +169,7 @@ class PlotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "peaks.csv"
             path.write_text(
-                "m/z,intensity\n"
-                "5,7\n0.2,4\n0.1,8\n0.15,8\n2.5,3\n10,9\n10,8\n11,1\n"
+                "m/z,intensity\n5,7\n0.2,4\n0.1,8\n0.15,8\n2.5,3\n10,9\n10,8\n11,1\n"
             )
             run = ms_py.Run.from_text_file(path)
 
@@ -149,6 +217,29 @@ class PlotTests(unittest.TestCase):
     def test_invalid_style(self) -> None:
         with self.assertRaisesRegex(ValueError, "style"):
             self.slice.plot_spectrum(style="bars")
+
+    def test_tic_plots_totals_in_rt_order(self) -> None:
+        ax = self.draw(self.run.plot_tic())
+        self.assertEqual(
+            ax.lines[0].get_xydata().tolist(),
+            [[0.0, 0.0], [5.5, 750.0], [6.0, 400.0], [7.0, 125.0]],
+        )
+        self.assertEqual((ax.get_xlabel(), ax.get_ylabel()), ("RT (s)", "Intensity"))
+        empty = self.draw(self.run.get_rt_slice(1.0, 2.0).plot_tic())
+        self.assertEqual(len(empty.lines), 0)
+
+    def test_tic_uses_calculation_and_returns_unrendered_plot(self) -> None:
+        with patch(
+            "ms_py.plotting.calculate_tic", return_value=([1.0, 2.0], [10.0, 20.0])
+        ) as calculate:
+            plot = self.run.plot_tic()
+        calculate.assert_called_once_with(self.run)
+        self.assertIsInstance(plot, so.Plot)
+        self.assertEqual(plt.get_fignums(), [])
+        self.assertEqual(
+            self.draw(plot).lines[0].get_xydata().tolist(),
+            [[1.0, 10.0], [2.0, 20.0]],
+        )
 
     def test_rt_mz_plots_every_peak(self) -> None:
         ax = self.draw(self.run.plot_rt_mz())

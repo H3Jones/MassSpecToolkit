@@ -251,6 +251,13 @@ impl PyRun {
             .map_err(run_error)
     }
 
+    /// Returns sorted RTs in seconds and summed intensities for a flat run.
+    fn calculate_tic<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("calculate_tic", (slf,))
+    }
+
     /// Returns an unrendered `seaborn.objects.Plot` of a single spectrum.
     #[pyo3(signature = (*, style = "sticks", bins = None, mz_range = None))]
     fn plot_spectrum<'py>(
@@ -269,6 +276,25 @@ impl PyRun {
         slf.py()
             .import("ms_py.plotting")?
             .call_method1("rt_mz", (slf,))
+    }
+
+    /// Returns an unrendered total ion chromatogram from `calculate_tic()`.
+    fn plot_tic<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("tic", (slf,))
+    }
+
+    /// Returns an unrendered extracted ion chromatogram for a specific m/z value.
+    #[pyo3(signature = (mz_target, tolerance = 0.0))]
+    fn plot_eic<'py>(
+        slf: &Bound<'py, Self>,
+        mz_target: f64,
+        tolerance: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("eic", (slf, mz_target, tolerance))
     }
 
     fn __repr__(&self) -> String {

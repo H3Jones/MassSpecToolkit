@@ -36,8 +36,10 @@ def _require_single_spectrum(run):
 
 
 def require_rt_dimension(run):
-    if run.peak_rt is None:
+    peak_rt = run.peak_rt
+    if peak_rt is None:
         raise ValueError("run has no per-peak retention times")
+    return peak_rt
 
 
 def _binned_spectrum(mz, intensity, bins, mz_range):
@@ -124,9 +126,7 @@ def mass_spectrum(run, style, bins=None, mz_range=None):
 
 
 def rt_mz(run):
-    peak_rt = run.peak_rt
-    if peak_rt is None:
-        raise ValueError("run has no per-peak retention times")
+    peak_rt = require_rt_dimension(run)
     if any(rt is None for rt in peak_rt):
         raise ValueError("every peak needs a retention time for an RT/mz plot")
     so = _objects()
@@ -134,3 +134,40 @@ def rt_mz(run):
     data = {"rt": peak_rt, "mz": run.mz, "intensity": run.intensity}
     plot = so.Plot(data, x="rt", y="mz", color="intensity")
     return plot.add(so.Dot()).label(x="RT (s)", y="m/z", color="Intensity")
+
+
+def calculate_tic(run) -> tuple[list[float], list[float]]:
+    """Return sorted RTs (seconds) and summed intensities for a flat run.
+
+    Peaks sharing an RT contribute to one point. Missing RTs raise ValueError;
+    an empty run with an RT column returns two empty lists. No plotting
+    dependencies are required.
+    """
+    peak_rt = require_rt_dimension(run)
+    totals: dict[float, float] = {}
+    for rt, intensity in zip(peak_rt, run.intensity, strict=True):
+        if rt is None:
+            raise ValueError("every peak needs a retention time for a TIC")
+        totals[rt] = totals.get(rt, 0.0) + intensity
+    retention_times = sorted(totals)
+    intensities = [totals[time] for time in retention_times]
+    if any(not math.isfinite(value) for value in intensities):
+        raise OverflowError("total ion intensity exceeds the finite float range")
+    return retention_times, intensities
+
+
+def tic(run):
+    """Build a total ion chromatogram (TIC) plot from calculated totals."""
+    rt, intensity = run.calculate_tic()
+    so = _objects()
+    plot = so.Plot({"rt": rt, "intensity": intensity}, x="rt", y="intensity")
+    return plot.add(so.Line()).label(x="RT (s)", y="Intensity")
+
+
+def eic(run, mz_target, tolerance=0.0):
+    """Build an extracted ion chromatogram (EIC) plot for a specific m/z value."""
+    temp = run.get_mz_slice(mz_target - tolerance, mz_target + tolerance)
+    so = _objects()
+    data = {"rt": temp.peak_rt, "intensity": temp.intensity}
+    plot = so.Plot(data, x="rt", y="intensity")
+    return plot.add(so.Line()).label(x="RT (s)", y="Intensity")
