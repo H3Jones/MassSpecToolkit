@@ -219,9 +219,12 @@ impl PyRun {
     }
 
     /// Selects rows or whole scans with `minimum <= RT <= maximum`, in seconds.
-    fn get_rt_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+    ///
+    /// Omitted bounds are open. Missing RTs are excluded.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_rt_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
         self.0
-            .get_rt_slice(minimum, maximum)
+            .get_rt_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
             .map(Self)
             .map_err(run_error)
     }
@@ -236,17 +239,23 @@ impl PyRun {
     }
 
     /// Retains peaks with `minimum <= m/z <= maximum`.
-    fn get_mz_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+    ///
+    /// Omitted bounds are open.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_mz_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
         self.0
-            .get_mz_slice(minimum, maximum)
+            .get_mz_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
             .map(Self)
             .map_err(run_error)
     }
 
     /// Retains peaks with `minimum <= intensity <= maximum` in the original scale.
-    fn get_intensity_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+    ///
+    /// Omitted bounds are open.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_intensity_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
         self.0
-            .get_intensity_slice(minimum, maximum)
+            .get_intensity_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
             .map(Self)
             .map_err(run_error)
     }

@@ -130,6 +130,7 @@ run = ms_py.Run.from_text_file("peaks.csv", rt_unit="minutes")  # layout guessed
 print(run.peak_count, run.summary.rt_bounds)  # RT in seconds
 selected = run.get_rt_slice(330.0, 330.0)  # exact RT in seconds
 region = run.get_rt_range(300.0, 360.0)  # start <= RT < end
+filtered = run.get_intensity_slice(minimum=1e5)
 print(selected.peak_ids, selected.mz, selected.intensity, selected.peak_rt)
 
 layout = ms_py.TxtFormat(skip_lines=1, column_count=19, mz_column=1, intensity_column=2)
@@ -153,7 +154,8 @@ composer = ms_py.Run.from_text_file("export.csv", layout)
   scans and raises `ValueError` for flat text runs.
 - `get_mz_slice(minimum, maximum)` and `get_intensity_slice(minimum, maximum)`
   return new runs retaining peaks within inclusive, finite, nonnegative bounds.
-  Intensity bounds use the original measurement scale.
+  Intensity bounds use the original measurement scale. Either bound may be
+  omitted for all three slice methods.
 
 Columns are returned as fresh lists. Missing files raise `FileNotFoundError`
 (an `OSError`); invalid layouts, malformed data, unsupported units, invalid
