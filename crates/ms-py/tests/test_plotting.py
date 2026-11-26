@@ -96,6 +96,52 @@ class PlotTests(unittest.TestCase):
             [(100.0, 10.0), (100.0, 30.0), (200.0, 5.0)],
         )
 
+    def test_binned_spectrum_selects_strongest_and_reports_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "peaks.csv"
+            path.write_text(
+                "m/z,intensity\n"
+                "5,7\n0.2,4\n0.1,8\n0.15,8\n2.5,3\n10,9\n10,8\n11,1\n"
+            )
+            run = ms_py.Run.from_text_file(path)
+
+        plot = run.plot_spectrum(bins=4, mz_range=(0, 10))
+        self.assertIsInstance(plot, so.Plot)
+        ax = self.draw(plot)
+        segments = [segment[1].tolist() for segment in ax.collections[0].get_segments()]
+        self.assertEqual(segments, [[5.0, 7.0], [0.1, 8.0], [2.5, 3.0], [10.0, 9.0]])
+        self.assertEqual(ax.get_xlim(), (0, 10))
+        self.assertEqual(ax.get_title(), "Showing 4 of 7 peaks in range (8 total)")
+        self.assertEqual(run.peak_count, 8)
+
+        zoomed = self.draw(run.plot_spectrum(bins=4, mz_range=(0, 0.25)))
+        self.assertEqual(len(zoomed.collections[0].get_segments()), 3)
+        self.assertEqual(zoomed.get_title(), "Showing 3 of 3 peaks in range (8 total)")
+
+        empty = self.draw(run.plot_spectrum(bins=4, mz_range=(20, 30)))
+        self.assertEqual(sum(len(c.get_segments()) for c in empty.collections), 0)
+        self.assertEqual(empty.get_title(), "Showing 0 of 0 peaks in range (8 total)")
+
+    def test_binned_spectrum_validates_options(self) -> None:
+        with self.assertRaisesRegex(ValueError, "positive"):
+            self.slice.plot_spectrum(bins=0)
+        with self.assertRaisesRegex(ValueError, "requires bins"):
+            self.slice.plot_spectrum(mz_range=(0, 100))
+        with self.assertRaisesRegex(ValueError, "only supported"):
+            self.slice.plot_spectrum(style="profile", bins=10)
+        for mz_range in [(1, 1), (2, 1), (0, float("inf")), (float("nan"), 1)]:
+            with self.subTest(mz_range=mz_range):
+                with self.assertRaisesRegex(ValueError, "finite and increasing"):
+                    self.slice.plot_spectrum(bins=10, mz_range=mz_range)
+
+    def test_binned_spectrum_caps_bin_count(self) -> None:
+        from ms_py.plotting import _binned_spectrum
+
+        mz = list(range(1, 2001))
+        selected, _, visible_count, _ = _binned_spectrum(mz, mz, 2000, (0, 2000))
+        self.assertEqual(visible_count, 2000)
+        self.assertEqual(len(selected), 1000)
+
     def test_multi_rt_spectrum_requires_selection(self) -> None:
         with self.assertRaisesRegex(ValueError, "get_rt_slice"):
             self.run.plot_spectrum()

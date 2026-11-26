@@ -243,11 +243,16 @@ impl PyRun {
     }
 
     /// Returns an unrendered `seaborn.objects.Plot` of a single spectrum.
-    #[pyo3(signature = (*, style = "sticks"))]
-    fn plot_spectrum<'py>(slf: &Bound<'py, Self>, style: &str) -> PyResult<Bound<'py, PyAny>> {
+    #[pyo3(signature = (*, style = "sticks", bins = None, mz_range = None))]
+    fn plot_spectrum<'py>(
+        slf: &Bound<'py, Self>,
+        style: &str,
+        bins: Option<usize>,
+        mz_range: Option<(f64, f64)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         slf.py()
             .import("ms_py.plotting")?
-            .call_method1("spectrum", (slf, style))
+            .call_method1("mass_spectrum", (slf, style, bins, mz_range))
     }
 
     /// Returns an unrendered `seaborn.objects.Plot` of peak RT against m/z.
