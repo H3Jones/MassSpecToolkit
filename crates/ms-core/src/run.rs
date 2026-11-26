@@ -11,9 +11,7 @@
 //! Repeated RT values are never interpreted as scan boundaries.
 //!
 //! ```
-//! use ms_core::run::{
-//!     PeakColumns, RtMode, RtUnitMetadata, Run, ScanColumns, SourceInfo,
-//! };
+//! use ms_core::run::{PeakColumns, RtUnitMetadata, Run, ScanColumns, SourceInfo};
 //!
 //! let source = SourceInfo {
 //!     source_id: "example".into(),
@@ -37,7 +35,7 @@
 //!     signal_to_noise: None,
 //! };
 //! let run = Run::with_scans(source, scans, peaks)?;
-//! let selected = run.get_rt_slice(5.6, RtMode::Nearest)?;
+//! let selected = run.get_rt_slice(5.5, 5.5)?;
 //! let spectrum = selected.spectra().next().unwrap();
 //! assert_eq!(spectrum.native_id(), "scan=1");
 //! assert_eq!(spectrum.mz(), &[100.0, 200.0]);
@@ -168,12 +166,6 @@ impl fmt::Display for RtUnitError {
 }
 
 impl std::error::Error for RtUnitError {}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RtMode {
-    Exact,
-    Nearest,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Polarity {
@@ -434,25 +426,20 @@ impl Run {
         }
     }
 
-    /// Selects every unit at an exact or nearest RT in seconds.
+    /// Selects rows or whole scans with `minimum <= RT <= maximum`, in seconds.
     ///
-    /// Exact uses no tolerance. Nearest ties choose the earlier RT; queries
-    /// outside the recorded range choose an endpoint. Missing RTs are excluded;
-    /// a flat run without an RT column is an error.
-    pub fn get_rt_slice(&self, rt: f64, mode: RtMode) -> Result<Self, RunError> {
-        RtUnit::Seconds
-            .to_seconds(rt)
-            .map_err(RunError::InvalidQueryRt)?;
-        let values = self.selectable_rt().ok_or(RunError::RtUnavailable)?;
-        let target = match mode {
-            RtMode::Exact => Some(rt),
-            RtMode::Nearest => nearest(values, rt),
-        };
-        Ok(self.select(|unit| target.is_some() && values[unit] == target))
+    /// Bounds must be finite, nonnegative and ordered. Equal bounds select an
+    /// exact RT. Missing RTs are excluded; a flat run without RT is an error.
+    pub fn get_rt_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_rt_range(minimum, maximum, true)
     }
 
     /// Selects units in the half-open seconds interval `start <= RT < end`.
     pub fn get_rt_range(&self, start: f64, end: f64) -> Result<Self, RunError> {
+        self.select_rt_range(start, end, false)
+    }
+
+    fn select_rt_range(&self, start: f64, end: f64, inclusive_end: bool) -> Result<Self, RunError> {
         for value in [start, end] {
             RtUnit::Seconds
                 .to_seconds(value)
@@ -462,7 +449,9 @@ impl Run {
             return Err(RunError::InvalidRtRange { start, end });
         }
         let values = self.selectable_rt().ok_or(RunError::RtUnavailable)?;
-        Ok(self.select(|unit| values[unit].is_some_and(|rt| start <= rt && rt < end)))
+        Ok(self.select(|unit| {
+            values[unit].is_some_and(|rt| start <= rt && (rt < end || (inclusive_end && rt == end)))
+        }))
     }
 
     /// Selects scans at one MS level. Flat runs have no MS levels.
@@ -797,30 +786,6 @@ fn normalize_rt(values: &mut [Option<f64>], unit: RtUnit) -> Result<(), (usize, 
         }
     }
     Ok(())
-}
-
-/// Brackets the query with the closest recorded values on each side, avoiding
-/// rounded absolute distances for extreme queries.
-fn nearest(values: &[Option<f64>], rt: f64) -> Option<f64> {
-    let mut earlier = None;
-    let mut later = None;
-    for value in values.iter().copied().flatten() {
-        if value <= rt {
-            if earlier.is_none_or(|best| value > best) {
-                earlier = Some(value);
-            }
-        } else if later.is_none_or(|best| value < best) {
-            later = Some(value);
-        }
-    }
-    match (earlier, later) {
-        (Some(earlier), Some(later)) => Some(if rt - earlier <= later - rt {
-            earlier
-        } else {
-            later
-        }),
-        (earlier, later) => earlier.or(later),
-    }
 }
 
 fn pick<T: Clone>(values: &[T], positions: &[usize]) -> Vec<T> {
@@ -1212,9 +1177,9 @@ mod tests {
     }
 
     #[test]
-    fn exact_selection_preserves_duplicates_values_schema_and_source() {
+    fn equal_bound_slice_preserves_duplicates_values_schema_and_source() {
         let run = selection_run();
-        let selected = run.get_rt_slice(300.0, RtMode::Exact).unwrap();
+        let selected = run.get_rt_slice(300.0, 300.0).unwrap();
         assert_eq!(selected.peak_ids(), Some([2, 5].as_slice()));
         assert_eq!(selected.mz(), &[50.0, 100.0]);
         assert_eq!(selected.intensity(), &[20.0, 10.0]);
@@ -1232,7 +1197,7 @@ mod tests {
         assert_eq!(run.peak_count(), 5);
         assert_eq!(run.summary().rt_bounds, Some((0.0, 360.0)));
         let adjacent = f64::from_bits(300.0_f64.to_bits() + 1);
-        let empty = run.get_rt_slice(adjacent, RtMode::Exact).unwrap();
+        let empty = run.get_rt_slice(adjacent, adjacent).unwrap();
         assert!(empty.is_empty());
         assert_eq!(empty.schema(), run.schema());
         assert_eq!(empty.peak_rt(), Some([].as_slice()));
@@ -1240,23 +1205,19 @@ mod tests {
     }
 
     #[test]
-    fn nearest_selects_all_matches_with_earlier_ties_and_endpoint_behavior() {
+    fn rt_slice_includes_both_bounds_and_preserves_source_order() {
         let run = selection_run();
-        for query in [300.0, 301.0, 330.0] {
-            assert_eq!(
-                run.get_rt_slice(query, RtMode::Nearest).unwrap().peak_ids(),
-                Some([2, 5].as_slice())
-            );
-        }
         assert_eq!(
-            run.get_rt_slice(0.0, RtMode::Nearest).unwrap().peak_ids(),
-            Some([7].as_slice())
+            run.get_rt_slice(300.0, 360.0).unwrap().peak_ids(),
+            Some([8, 2, 5].as_slice())
         );
         assert_eq!(
-            run.get_rt_slice(f64::MAX, RtMode::Nearest)
-                .unwrap()
-                .peak_ids(),
-            Some([8].as_slice())
+            run.get_rt_slice(0.0, 300.0).unwrap().peak_ids(),
+            Some([2, 5, 7].as_slice())
+        );
+        assert_eq!(
+            run.get_rt_slice(0.0, f64::MAX).unwrap().peak_ids(),
+            Some([8, 2, 5, 7].as_slice())
         );
     }
 
@@ -1265,13 +1226,8 @@ mod tests {
         let run = selection_run();
         let region = run.get_rt_range(300.0, 360.0).unwrap();
         assert_eq!(region.peak_ids(), Some([2, 5].as_slice()));
-        assert_eq!(region.get_rt_slice(360.0, RtMode::Nearest).unwrap(), region);
-        assert!(
-            region
-                .get_rt_slice(360.0, RtMode::Exact)
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(region.get_rt_slice(300.0, 300.0).unwrap(), region);
+        assert!(region.get_rt_slice(360.0, 360.0).unwrap().is_empty());
         assert!(run.get_rt_range(300.0, 300.0).unwrap().is_empty());
         assert_eq!(
             run.get_rt_range(0.0, 300.0).unwrap().peak_ids(),
@@ -1279,12 +1235,10 @@ mod tests {
         );
         let later = run.get_rt_range(360.0, 400.0).unwrap();
         assert_eq!(
-            later
-                .get_rt_slice(300.0, RtMode::Nearest)
-                .unwrap()
-                .peak_ids(),
+            later.get_rt_slice(360.0, 360.0).unwrap().peak_ids(),
             Some([8].as_slice())
         );
+        assert!(later.get_rt_slice(0.0, 300.0).unwrap().is_empty());
         assert_eq!(later.source(), run.source());
         assert_eq!(run.get_ms_level(1), Err(RunError::MsLevelUnavailable));
     }
@@ -1359,30 +1313,23 @@ mod tests {
     #[test]
     fn selection_distinguishes_unavailable_rt_from_no_matches_and_rejects_bad_queries() {
         let absent = Run::flat(source(None), ids(), columns()).unwrap();
-        assert_eq!(
-            absent.get_rt_slice(1.0, RtMode::Exact),
-            Err(RunError::RtUnavailable)
-        );
+        assert_eq!(absent.get_rt_slice(1.0, 1.0), Err(RunError::RtUnavailable));
         assert_eq!(absent.get_rt_range(0.0, 1.0), Err(RunError::RtUnavailable));
         let mut nulls = columns();
         nulls.rt = Some(vec![None; 3]);
         let all_null = Run::flat(source(seconds()), ids(), nulls).unwrap();
-        for mode in [RtMode::Exact, RtMode::Nearest] {
-            let empty = all_null.get_rt_slice(1.0, mode).unwrap();
-            assert!(empty.is_empty());
-            assert!(empty.get_rt_slice(1.0, mode).unwrap().is_empty());
-            assert_eq!(empty.source(), all_null.source());
-            assert_eq!(empty.schema(), all_null.schema());
-        }
+        let empty = all_null.get_rt_slice(1.0, 1.0).unwrap();
+        assert!(empty.is_empty());
+        assert!(empty.get_rt_slice(1.0, 1.0).unwrap().is_empty());
+        assert_eq!(empty.source(), all_null.source());
+        assert_eq!(empty.schema(), all_null.schema());
         assert!(all_null.get_rt_range(0.0, 2.0).unwrap().is_empty());
         for invalid in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            for mode in [RtMode::Exact, RtMode::Nearest] {
+            for (start, end) in [(invalid, 1.0), (0.0, invalid)] {
                 assert!(matches!(
-                    all_null.get_rt_slice(invalid, mode),
+                    all_null.get_rt_slice(start, end),
                     Err(RunError::InvalidQueryRt(_))
                 ));
-            }
-            for (start, end) in [(invalid, 1.0), (0.0, invalid)] {
                 assert!(matches!(
                     all_null.get_rt_range(start, end),
                     Err(RunError::InvalidQueryRt(_))
@@ -1391,6 +1338,13 @@ mod tests {
         }
         assert_eq!(
             all_null.get_rt_range(2.0, 1.0),
+            Err(RunError::InvalidRtRange {
+                start: 2.0,
+                end: 1.0
+            })
+        );
+        assert_eq!(
+            all_null.get_rt_slice(2.0, 1.0),
             Err(RunError::InvalidRtRange {
                 start: 2.0,
                 end: 1.0
@@ -1460,7 +1414,7 @@ mod tests {
     #[test]
     fn scan_selections_keep_whole_scans_and_rebuild_offsets() {
         let run = scan_run();
-        let exact = run.get_rt_slice(60.0, RtMode::Exact).unwrap();
+        let exact = run.get_rt_slice(60.0, 60.0).unwrap();
         assert_eq!(exact.scans().unwrap().index(), &[10, 11]);
         assert_eq!(exact.scans().unwrap().peak_offsets(), &[0, 2, 3]);
         assert_eq!(exact.mz(), &[100.0, 200.0, 150.0]);
@@ -1469,19 +1423,22 @@ mod tests {
             Some([Some(1.0), None, Some(3.0)].as_slice())
         );
         assert_eq!(exact.source(), run.source());
-        assert_eq!(run.get_rt_slice(70.0, RtMode::Nearest).unwrap(), exact);
         assert_eq!(run.get_rt_range(60.0, 120.0).unwrap(), exact);
+        let inclusive = run.get_rt_slice(60.0, 120.0).unwrap();
+        assert_eq!(inclusive.scans().unwrap().index(), &[10, 11, 12]);
+        assert_eq!(inclusive.scans().unwrap().peak_offsets(), &[0, 2, 3, 3]);
+        assert_eq!(inclusive.mz(), &[100.0, 200.0, 150.0]);
 
         let ms1 = run.get_ms_level(1).unwrap();
         assert_eq!(ms1.scans().unwrap().native_id(), &["scan=1", "scan=3"]);
-        let tie = ms1.get_rt_slice(90.0, RtMode::Nearest).unwrap();
-        assert_eq!(tie.scans().unwrap().index(), &[10]);
-        let empty_scan = ms1.get_rt_slice(120.0, RtMode::Exact).unwrap();
+        let both = ms1.get_rt_slice(60.0, 120.0).unwrap();
+        assert_eq!(both.scans().unwrap().index(), &[10, 12]);
+        let empty_scan = ms1.get_rt_slice(120.0, 120.0).unwrap();
         assert_eq!(empty_scan.scan_count(), Some(1));
         assert_eq!(empty_scan.peak_count(), 0);
         assert!(!empty_scan.is_empty());
 
-        let none = run.get_rt_slice(1.0, RtMode::Exact).unwrap();
+        let none = run.get_rt_slice(1.0, 1.0).unwrap();
         assert!(none.is_empty());
         assert_eq!(none.scans().unwrap().peak_offsets(), &[0]);
         assert_eq!(none.schema(), run.schema());

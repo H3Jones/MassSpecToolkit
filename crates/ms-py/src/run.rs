@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use ms_core::run::{RtMode, RtUnit, RtUnitOrigin, Run, RunError, RunLayout};
+use ms_core::run::{RtUnit, RtUnitOrigin, Run, RunError, RunLayout};
 use ms_core::spectrum::Peak;
 use ms_readers::readers::txt::{
     TxtDelimiter, TxtFormat, TxtReadError, TxtReadOptions, guess_txt_format as guess_format, read,
@@ -218,19 +218,12 @@ impl PyRun {
         self.0.peaks().map(PyPeak::from).collect()
     }
 
-    /// Selects every unit at `rt` seconds (`mode="exact"`) or at the nearest RT.
-    #[pyo3(signature = (rt, *, mode))]
-    fn get_rt_slice(&self, rt: f64, mode: &str) -> PyResult<Self> {
-        let mode = match mode {
-            "exact" => RtMode::Exact,
-            "nearest" => RtMode::Nearest,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "mode must be \"exact\" or \"nearest\", got {mode:?}"
-                )));
-            }
-        };
-        self.0.get_rt_slice(rt, mode).map(Self).map_err(run_error)
+    /// Selects rows or whole scans with `minimum <= RT <= maximum`, in seconds.
+    fn get_rt_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+        self.0
+            .get_rt_slice(minimum, maximum)
+            .map(Self)
+            .map_err(run_error)
     }
 
     /// Selects units with `start <= RT < end`, in seconds.

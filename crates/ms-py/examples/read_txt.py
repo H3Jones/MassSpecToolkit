@@ -14,19 +14,19 @@ def main() -> None:
         choices=["seconds", "minutes", "milliseconds"],
         help="Unit of the file's RT column (default: seconds)",
     )
-    parser.add_argument("--rt", type=float, help="Select peaks at this RT, in seconds")
     parser.add_argument(
-        "--mode",
-        choices=["exact", "nearest"],
-        default="nearest",
-        help="RT selection mode",
+        "--rt",
+        type=float,
+        nargs=2,
+        metavar=("MIN", "MAX"),
+        help="Select peaks within these inclusive RT bounds, in seconds",
     )
     args = parser.parse_args()
 
     try:
         run = Run.from_text_file(args.path, rt_unit=args.rt_unit)
         if args.rt is not None:
-            run = run.get_rt_slice(args.rt, mode=args.mode)
+            run = run.get_rt_slice(*args.rt)
     except (OSError, ValueError) as error:
         parser.error(str(error))
 

@@ -33,7 +33,7 @@ class ReadTxtTests(unittest.TestCase):
         self.assertEqual(explicit.peak_rt, [360.0, 330.0, 330.0, 420.0, 0.0])
         self.assertEqual(explicit.source.source_id, "sample")
         self.assertEqual(explicit.source.rt_unit_origin, "caller")
-        self.assertEqual(explicit.get_rt_slice(330.0, mode="exact").peak_ids, [1, 2])
+        self.assertEqual(explicit.get_rt_slice(330.0, 330.0).peak_ids, [1, 2])
 
     def test_from_text_file_errors(self) -> None:
         with self.assertRaises(FileNotFoundError):
@@ -99,22 +99,39 @@ class ReadTxtTests(unittest.TestCase):
     def test_rt_selections(self) -> None:
         run = ms_py.read_txt(RT_PEAKS)
         for selected in [
-            run.get_rt_slice(5.5, mode="exact"),
-            run.get_rt_slice(5.6, mode="nearest"),
+            run.get_rt_slice(5.5, 5.5),
             run.get_rt_range(5.5, 6.0),
         ]:
             self.assertEqual(selected.peak_ids, [1, 2])
             self.assertEqual(selected.mz, [100.0, 200.0])
             self.assertEqual(selected.source.source_id, "rt_peaks.csv")
-        empty = run.get_rt_slice(5.6, mode="exact")
+        inclusive = run.get_rt_slice(minimum=5.5, maximum=6.0)
+        self.assertEqual(inclusive.peak_ids, [0, 1, 2])
+        self.assertEqual(inclusive.summary.rt_bounds, (5.5, 6.0))
+        self.assertEqual(run.get_rt_slice(0.0, 0.0).peak_ids, [4])
+        empty = run.get_rt_slice(5.6, 5.6)
         self.assertTrue(empty.is_empty)
         self.assertEqual(empty.peak_rt, [])
         self.assertIsNone(empty.summary.mz_bounds)
-        self.assertEqual(run.get_rt_slice(5.75, mode="nearest").peak_ids, [1, 2])
-        with self.assertRaisesRegex(ValueError, "mode"):
-            run.get_rt_slice(5.5, mode="closest")
         with self.assertRaises(TypeError):
             run.get_rt_slice(5.5)  # type: ignore[call-arg]
+        with self.assertRaises(TypeError):
+            run.get_rt_slice(5.5, mode="exact")  # type: ignore[call-arg]
+        for minimum, maximum in [
+            (float("nan"), 1),
+            (0, float("inf")),
+            (-1, 1),
+            (2, 1),
+        ]:
+            with self.subTest(bounds=(minimum, maximum)):
+                with self.assertRaises(ValueError):
+                    run.get_rt_slice(minimum, maximum)
+        layout = ms_py.TxtFormat(
+            skip_lines=1, column_count=4, mz_column=1, intensity_column=2
+        )
+        no_rt = ms_py.Run.from_text_file(RT_PEAKS, layout)
+        with self.assertRaisesRegex(ValueError, "no RT column"):
+            no_rt.get_rt_slice(0, 1)
         with self.assertRaises(ValueError):
             run.get_rt_range(6.0, 5.0)
         with self.assertRaises(ValueError):
@@ -127,7 +144,7 @@ class ReadTxtTests(unittest.TestCase):
         self.assertEqual(
             (run.source.rt_unit, run.source.rt_unit_origin), ("minutes", "caller")
         )
-        self.assertEqual(run.get_rt_slice(330.0, mode="exact").peak_ids, [1, 2])
+        self.assertEqual(run.get_rt_slice(330.0, 330.0).peak_ids, [1, 2])
         with self.assertRaisesRegex(ValueError, "hours"):
             ms_py.read_txt(RT_PEAKS, rt_unit="hours")
 

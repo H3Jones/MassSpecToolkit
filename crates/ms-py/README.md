@@ -61,7 +61,7 @@ or an RT selection in seconds, as JSON:
 
 ```sh
 uv run python examples/read_txt.py ../ms-readers/tests/fixtures/rt_peaks.csv
-uv run python examples/read_txt.py ../ms-readers/tests/fixtures/rt_peaks.csv --rt-unit minutes --rt 330 --mode exact
+uv run python examples/read_txt.py ../ms-readers/tests/fixtures/rt_peaks.csv --rt-unit minutes --rt 330 330
 ```
 
 ## API
@@ -128,7 +128,7 @@ import ms_py
 
 run = ms_py.Run.from_text_file("peaks.csv", rt_unit="minutes")  # layout guessed
 print(run.peak_count, run.summary.rt_bounds)  # RT in seconds
-selected = run.get_rt_slice(330.0, mode="nearest")  # or mode="exact"
+selected = run.get_rt_slice(330.0, 330.0)  # exact RT in seconds
 region = run.get_rt_range(300.0, 360.0)  # start <= RT < end
 print(selected.peak_ids, selected.mz, selected.intensity, selected.peak_rt)
 
@@ -148,9 +148,9 @@ composer = ms_py.Run.from_text_file("export.csv", layout)
   `summary`, `peak_count`, `scan_count`, `is_empty`, the columns `mz`,
   `intensity`, `signal_to_noise`, `peak_rt` and `peak_ids`, plus `peak(row)` and
   `peaks()` returning `Peak` values. Absent optional columns are `None`.
-- `get_rt_slice(rt, *, mode)`, `get_rt_range(start, end)` and
-  `get_ms_level(level)` return new `Run`s preserving peak IDs and source. Flat
-  text runs have no MS level, so `get_ms_level` raises `ValueError`.
+- `get_rt_slice(minimum, maximum)` selects inclusive RT bounds in seconds;
+  `get_rt_range(start, end)` remains half-open. `get_ms_level(level)` selects
+  scans and raises `ValueError` for flat text runs.
 - `get_mz_slice(minimum, maximum)` and `get_intensity_slice(minimum, maximum)`
   return new runs retaining peaks within inclusive, finite, nonnegative bounds.
   Intensity bounds use the original measurement scale.
@@ -166,9 +166,9 @@ Plotting needs the optional extra: `pip install ms-py[plot]` (or
 `uv sync --extra plot`). 
 
 ```python
-plot = run.get_rt_slice(330.0, mode="nearest").plot_spectrum()  # or style="profile"
+plot = run.get_rt_slice(330.0, 330.0).plot_spectrum()  # or style="profile"
 plot.label(title="Sample").show()  # or .save("spectrum.png"), or .on(ax).plot()
-run.get_rt_slice(330.0, mode="nearest").plot_spectrum(bins=1000).show()
+run.get_rt_slice(330.0, 330.0).plot_spectrum(bins=1000).show()
 run.plot_rt_mz().show()  # peak RT against m/z, coloured by intensity
 ```
 

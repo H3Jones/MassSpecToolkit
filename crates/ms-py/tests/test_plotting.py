@@ -30,7 +30,7 @@ class OptionalDependencyTests(unittest.TestCase):
             run = Run.from_text_file({str(RT_PEAKS)!r})
             assert len(run.mz) == 5
             try:
-                run.get_rt_slice(5.5, mode="exact").plot_spectrum()
+                run.get_rt_slice(5.5, 5.5).plot_spectrum()
             except ImportError as error:
                 print(error)
             """
@@ -56,7 +56,7 @@ class OptionalDependencyTests(unittest.TestCase):
 class PlotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.run = ms_py.Run.from_text_file(RT_PEAKS)
-        self.slice = self.run.get_rt_slice(5.5, mode="exact")
+        self.slice = self.run.get_rt_slice(5.5, 5.5)
         plt.close("all")
         self.addCleanup(plt.close, "all")
 
