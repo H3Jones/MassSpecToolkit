@@ -5,8 +5,9 @@
 //! metadata to each scan. Either way peaks are stored once, in shared columns;
 //! scans address them through offsets, matching the Arrow list layout.
 //!
-//! Selections choose whole selectable units — rows of a flat run, scans of a
-//! scan run — and always return another [`Run`] with the same source metadata.
+//! RT and MS-level selections choose whole rows or scans. m/z and intensity
+//! slices filter peaks, retaining all scans, including empty ones. Selections
+//! always return another [`Run`] with the same source metadata.
 //! Repeated RT values are never interpreted as scan boundaries.
 //!
 //! ```
@@ -472,6 +473,56 @@ impl Run {
         Ok(self.select(|scan| scans.ms_level()[scan] == level))
     }
 
+    /// Retains peaks with `minimum <= m/z <= maximum`, preserving source order.
+    ///
+    /// Bounds must be finite, nonnegative and ordered. Scan metadata is retained
+    /// even when no peaks remain in a scan; offsets and summaries are rebuilt.
+    pub fn get_mz_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_peak_range(&self.peaks.mz, "m/z", minimum, maximum)
+    }
+
+    /// Retains peaks with `minimum <= intensity <= maximum` in their original scale.
+    ///
+    /// Bounds must be finite, nonnegative and ordered. All scans are retained,
+    /// including empty ones; flat runs preserve their source-local peak IDs.
+    pub fn get_intensity_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_peak_range(&self.peaks.intensity, "intensity", minimum, maximum)
+    }
+
+    fn select_peak_range(
+        &self,
+        values: &[f64],
+        column: &'static str,
+        minimum: f64,
+        maximum: f64,
+    ) -> Result<Self, RunError> {
+        if !minimum.is_finite() || !maximum.is_finite() || minimum < 0.0 || maximum < minimum {
+            return Err(RunError::InvalidPeakRange {
+                column,
+                minimum,
+                maximum,
+            });
+        }
+        Ok(self.select_peaks(|row| minimum <= values[row] && values[row] <= maximum))
+    }
+
+    fn select_peaks(&self, predicate: impl Fn(usize) -> bool) -> Self {
+        match &self.layout {
+            Layout::Flat { .. } => self.select(predicate),
+            Layout::Scans(scans) => {
+                let mut columns = scans.0.clone();
+                columns.peak_offsets.clear();
+                columns.peak_offsets.push(0);
+                let mut rows = Vec::new();
+                for scan in 0..scans.len() {
+                    rows.extend(scans.peak_range(scan).filter(|&row| predicate(row)));
+                    columns.peak_offsets.push(rows.len());
+                }
+                self.select_rows(&rows, Layout::Scans(ScanTable(columns)))
+            }
+        }
+    }
+
     fn selectable_rt(&self) -> Option<&[Option<f64>]> {
         match &self.layout {
             Layout::Flat { .. } => self.peaks.rt.as_deref(),
@@ -508,15 +559,19 @@ impl Run {
                 (rows, Layout::Scans(table))
             }
         };
+        self.select_rows(&rows, layout)
+    }
+
+    fn select_rows(&self, rows: &[usize], layout: Layout) -> Self {
         let peaks = PeakColumns {
-            mz: pick(&self.peaks.mz, &rows),
-            intensity: pick(&self.peaks.intensity, &rows),
-            rt: self.peaks.rt.as_ref().map(|values| pick(values, &rows)),
+            mz: pick(&self.peaks.mz, rows),
+            intensity: pick(&self.peaks.intensity, rows),
+            rt: self.peaks.rt.as_ref().map(|values| pick(values, rows)),
             signal_to_noise: self
                 .peaks
                 .signal_to_noise
                 .as_ref()
-                .map(|values| pick(values, &rows)),
+                .map(|values| pick(values, rows)),
         };
         // Columns are already validated and in seconds; do not normalize again.
         Self::assemble(self.source.clone(), peaks, layout)
@@ -791,6 +846,11 @@ pub enum RunError {
         start: f64,
         end: f64,
     },
+    InvalidPeakRange {
+        column: &'static str,
+        minimum: f64,
+        maximum: f64,
+    },
     ColumnLengthMismatch {
         column: &'static str,
         expected: usize,
@@ -838,6 +898,14 @@ impl fmt::Display for RunError {
             Self::InvalidRtRange { start, end } => {
                 write!(f, "RT range start {start} exceeds end {end}")
             }
+            Self::InvalidPeakRange {
+                column,
+                minimum,
+                maximum,
+            } => write!(
+                f,
+                "{column} slice bounds must be finite, nonnegative and ordered; got [{minimum}, {maximum}]"
+            ),
             Self::ColumnLengthMismatch {
                 column,
                 expected,
@@ -1222,6 +1290,73 @@ mod tests {
     }
 
     #[test]
+    fn peak_slices_are_inclusive_and_preserve_rows_and_metadata() {
+        let run = selection_run();
+        let selected = run.get_mz_slice(50.0, 100.0).unwrap();
+        assert_eq!(selected.peak_ids(), Some([8, 2, 5, 7].as_slice()));
+        assert_eq!(selected.mz(), &[100.0, 50.0, 100.0, 75.0]);
+        assert_eq!(
+            selected.peak_rt(),
+            Some([Some(360.0), Some(300.0), Some(300.0), Some(0.0)].as_slice())
+        );
+        assert_eq!(
+            selected.signal_to_noise(),
+            Some([None, Some(0.0), Some(10.0), None].as_slice())
+        );
+        assert_eq!(selected.source(), run.source());
+        assert_eq!(selected.schema(), run.schema());
+        assert_eq!(selected.summary().mz_bounds, Some((50.0, 100.0)));
+        assert_eq!(
+            run.get_mz_slice(100.0, 100.0).unwrap().peak_ids(),
+            Some([8, 5].as_slice())
+        );
+        assert_eq!(
+            run.get_intensity_slice(5.0, 20.0).unwrap().peak_ids(),
+            Some([2, 5, 7].as_slice())
+        );
+        assert_eq!(
+            selected.get_intensity_slice(0.0, 0.0).unwrap().peak_ids(),
+            Some([8].as_slice())
+        );
+        assert_eq!(
+            run.get_intensity_slice(30.0, 30.0).unwrap().peak_rt(),
+            Some([None].as_slice())
+        );
+        let empty = run.get_mz_slice(200.0, 300.0).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.schema(), run.schema());
+        assert_eq!(empty.source(), run.source());
+        assert_eq!(empty.peak_rt(), Some([].as_slice()));
+        assert_eq!(empty.summary().mz_bounds, None);
+        assert_eq!(run.peak_count(), 5);
+    }
+
+    #[test]
+    fn peak_slices_reject_invalid_bounds() {
+        let run = selection_run();
+        for (minimum, maximum) in [
+            (f64::NAN, 1.0),
+            (0.0, f64::NAN),
+            (f64::NEG_INFINITY, 1.0),
+            (0.0, f64::INFINITY),
+            (-1.0, 1.0),
+            (2.0, 1.0),
+        ] {
+            assert!(matches!(
+                run.get_mz_slice(minimum, maximum),
+                Err(RunError::InvalidPeakRange { column: "m/z", .. })
+            ));
+            assert!(matches!(
+                run.get_intensity_slice(minimum, maximum),
+                Err(RunError::InvalidPeakRange {
+                    column: "intensity",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
     fn selection_distinguishes_unavailable_rt_from_no_matches_and_rejects_bad_queries() {
         let absent = Run::flat(source(None), ids(), columns()).unwrap();
         assert_eq!(
@@ -1350,6 +1485,40 @@ mod tests {
         assert!(none.is_empty());
         assert_eq!(none.scans().unwrap().peak_offsets(), &[0]);
         assert_eq!(none.schema(), run.schema());
+    }
+
+    #[test]
+    fn peak_slices_preserve_all_scans_and_rebuild_offsets() {
+        let run = scan_run();
+        for selected in [
+            run.get_mz_slice(150.0, 300.0).unwrap(),
+            run.get_intensity_slice(2.0, 4.0).unwrap(),
+        ] {
+            let mut expected_scans = run.scans().unwrap().0.clone();
+            expected_scans.peak_offsets = vec![0, 1, 2, 2, 3];
+            assert_eq!(selected.scans(), Some(&ScanTable(expected_scans)));
+            assert_eq!(selected.mz(), &[200.0, 150.0, 300.0]);
+            assert_eq!(selected.intensity(), &[2.0, 3.0, 4.0]);
+            assert_eq!(
+                selected.signal_to_noise(),
+                Some([None, Some(3.0), None].as_slice())
+            );
+            assert_eq!(selected.peak(1).unwrap().retention_time(), Some(60.0));
+            assert_eq!(selected.peak(2).unwrap().retention_time(), None);
+            assert_eq!(selected.source(), run.source());
+            assert_eq!(selected.schema(), run.schema());
+            assert_eq!(selected.summary().mz_bounds, Some((150.0, 300.0)));
+            assert_eq!(selected.summary().scan_count, Some(4));
+            let ms1 = selected.get_ms_level(1).unwrap();
+            assert_eq!(ms1.scans().unwrap().peak_offsets(), &[0, 1, 1]);
+            assert_eq!(ms1.mz(), &[200.0]);
+        }
+        let empty = run.get_mz_slice(500.0, 600.0).unwrap();
+        assert_eq!(empty.peak_count(), 0);
+        assert_eq!(empty.scans().unwrap().peak_offsets(), &[0, 0, 0, 0, 0]);
+        assert_eq!(empty.summary().rt_bounds, run.summary().rt_bounds);
+        assert!(!empty.is_empty());
+        assert_eq!(run.peak_count(), 5);
     }
 
     #[test]

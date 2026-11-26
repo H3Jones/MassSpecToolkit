@@ -242,6 +242,22 @@ impl PyRun {
         self.0.get_ms_level(level).map(Self).map_err(run_error)
     }
 
+    /// Retains peaks with `minimum <= m/z <= maximum`.
+    fn get_mz_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+        self.0
+            .get_mz_slice(minimum, maximum)
+            .map(Self)
+            .map_err(run_error)
+    }
+
+    /// Retains peaks with `minimum <= intensity <= maximum` in the original scale.
+    fn get_intensity_slice(&self, minimum: f64, maximum: f64) -> PyResult<Self> {
+        self.0
+            .get_intensity_slice(minimum, maximum)
+            .map(Self)
+            .map_err(run_error)
+    }
+
     /// Returns an unrendered `seaborn.objects.Plot` of a single spectrum.
     #[pyo3(signature = (*, style = "sticks", bins = None, mz_range = None))]
     fn plot_spectrum<'py>(

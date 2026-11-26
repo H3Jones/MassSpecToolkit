@@ -131,6 +131,39 @@ class ReadTxtTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hours"):
             ms_py.read_txt(RT_PEAKS, rt_unit="hours")
 
+    def test_peak_slices(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        selected = run.get_mz_slice(100, 200)
+        self.assertEqual(selected.peak_ids, [1, 2, 3])
+        self.assertEqual(selected.mz, [100.0, 200.0, 100.0])
+        self.assertEqual(selected.peak_rt, [5.5, 5.5, 7.0])
+        self.assertEqual(selected.signal_to_noise, [10.0, 30.0, 5.0])
+        self.assertEqual(selected.source.source_id, run.source.source_id)
+        self.assertEqual(selected.summary.mz_bounds, (100.0, 200.0))
+        self.assertEqual(selected.get_intensity_slice(250, 500).peak_ids, [1, 2])
+        self.assertEqual(run.get_mz_slice(100, 100).peak_ids, [1, 3])
+        self.assertEqual(run.get_intensity_slice(0, 0).peak_ids, [4])
+        empty = run.get_mz_slice(400, 500)
+        self.assertTrue(empty.is_empty)
+        self.assertEqual(empty.peak_rt, [])
+        self.assertIsNone(empty.summary.mz_bounds)
+        self.assertEqual(run.peak_count, 5)
+
+    def test_peak_slice_bounds(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        for select in [run.get_mz_slice, run.get_intensity_slice]:
+            for minimum, maximum in [
+                (float("nan"), 1),
+                (0, float("inf")),
+                (-1, 1),
+                (2, 1),
+            ]:
+                with self.subTest(method=select, bounds=(minimum, maximum)):
+                    with self.assertRaisesRegex(
+                        ValueError, "finite, nonnegative and ordered"
+                    ):
+                        select(minimum, maximum)
+
     def test_invalid_input(self) -> None:
         with self.assertRaises(FileNotFoundError):
             ms_py.read_txt(FIXTURES / "missing.csv")
