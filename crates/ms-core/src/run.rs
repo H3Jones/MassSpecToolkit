@@ -5,14 +5,13 @@
 //! metadata to each scan. Either way peaks are stored once, in shared columns;
 //! scans address them through offsets, matching the Arrow list layout.
 //!
-//! Selections choose whole selectable units — rows of a flat run, scans of a
-//! scan run — and always return another [`Run`] with the same source metadata.
+//! RT and MS-level selections choose whole rows or scans. m/z and intensity
+//! slices filter peaks, retaining all scans, including empty ones. Selections
+//! always return another [`Run`] with the same source metadata.
 //! Repeated RT values are never interpreted as scan boundaries.
 //!
 //! ```
-//! use ms_core::run::{
-//!     PeakColumns, RtMode, RtUnitMetadata, Run, ScanColumns, SourceInfo,
-//! };
+//! use ms_core::run::{PeakColumns, RtUnitMetadata, Run, ScanColumns, SourceInfo};
 //!
 //! let source = SourceInfo {
 //!     source_id: "example".into(),
@@ -36,7 +35,7 @@
 //!     signal_to_noise: None,
 //! };
 //! let run = Run::with_scans(source, scans, peaks)?;
-//! let selected = run.get_rt_slice(5.6, RtMode::Nearest)?;
+//! let selected = run.get_rt_slice(5.5, 5.5)?;
 //! let spectrum = selected.spectra().next().unwrap();
 //! assert_eq!(spectrum.native_id(), "scan=1");
 //! assert_eq!(spectrum.mz(), &[100.0, 200.0]);
@@ -167,12 +166,6 @@ impl fmt::Display for RtUnitError {
 }
 
 impl std::error::Error for RtUnitError {}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RtMode {
-    Exact,
-    Nearest,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Polarity {
@@ -322,10 +315,13 @@ impl Run {
         if peaks.rt.is_some() != source.rt_unit.is_some() {
             return Err(RunError::RtUnitMetadataMismatch);
         }
-        let mut identities = HashSet::with_capacity(peak_id.len());
-        for (row, &id) in peak_id.iter().enumerate() {
-            if !identities.insert(id) {
-                return Err(RunError::DuplicatePeakId { row, peak_id: id });
+        // Strictly increasing IDs are already unique, as in text imports.
+        if !peak_id.windows(2).all(|pair| pair[0] < pair[1]) {
+            let mut identities = HashSet::with_capacity(peak_id.len());
+            for (row, &id) in peak_id.iter().enumerate() {
+                if !identities.insert(id) {
+                    return Err(RunError::DuplicatePeakId { row, peak_id: id });
+                }
             }
         }
         if let (Some(values), Some(unit)) = (&mut peaks.rt, source.rt_unit) {
@@ -433,25 +429,20 @@ impl Run {
         }
     }
 
-    /// Selects every unit at an exact or nearest RT in seconds.
+    /// Selects rows or whole scans with `minimum <= RT <= maximum`, in seconds.
     ///
-    /// Exact uses no tolerance. Nearest ties choose the earlier RT; queries
-    /// outside the recorded range choose an endpoint. Missing RTs are excluded;
-    /// a flat run without an RT column is an error.
-    pub fn get_rt_slice(&self, rt: f64, mode: RtMode) -> Result<Self, RunError> {
-        RtUnit::Seconds
-            .to_seconds(rt)
-            .map_err(RunError::InvalidQueryRt)?;
-        let values = self.selectable_rt().ok_or(RunError::RtUnavailable)?;
-        let target = match mode {
-            RtMode::Exact => Some(rt),
-            RtMode::Nearest => nearest(values, rt),
-        };
-        Ok(self.select(|unit| target.is_some() && values[unit] == target))
+    /// Bounds must be finite, nonnegative and ordered. Equal bounds select an
+    /// exact RT. Missing RTs are excluded; a flat run without RT is an error.
+    pub fn get_rt_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_rt_range(minimum, maximum, true)
     }
 
     /// Selects units in the half-open seconds interval `start <= RT < end`.
     pub fn get_rt_range(&self, start: f64, end: f64) -> Result<Self, RunError> {
+        self.select_rt_range(start, end, false)
+    }
+
+    fn select_rt_range(&self, start: f64, end: f64, inclusive_end: bool) -> Result<Self, RunError> {
         for value in [start, end] {
             RtUnit::Seconds
                 .to_seconds(value)
@@ -461,7 +452,9 @@ impl Run {
             return Err(RunError::InvalidRtRange { start, end });
         }
         let values = self.selectable_rt().ok_or(RunError::RtUnavailable)?;
-        Ok(self.select(|unit| values[unit].is_some_and(|rt| start <= rt && rt < end)))
+        Ok(self.select(|unit| {
+            values[unit].is_some_and(|rt| start <= rt && (rt < end || (inclusive_end && rt == end)))
+        }))
     }
 
     /// Selects scans at one MS level. Flat runs have no MS levels.
@@ -470,6 +463,56 @@ impl Run {
             return Err(RunError::MsLevelUnavailable);
         };
         Ok(self.select(|scan| scans.ms_level()[scan] == level))
+    }
+
+    /// Retains peaks with `minimum <= m/z <= maximum`, preserving source order.
+    ///
+    /// Bounds must be finite, nonnegative and ordered. Scan metadata is retained
+    /// even when no peaks remain in a scan; offsets and summaries are rebuilt.
+    pub fn get_mz_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_peak_range(&self.peaks.mz, "m/z", minimum, maximum)
+    }
+
+    /// Retains peaks with `minimum <= intensity <= maximum` in their original scale.
+    ///
+    /// Bounds must be finite, nonnegative and ordered. All scans are retained,
+    /// including empty ones; flat runs preserve their source-local peak IDs.
+    pub fn get_intensity_slice(&self, minimum: f64, maximum: f64) -> Result<Self, RunError> {
+        self.select_peak_range(&self.peaks.intensity, "intensity", minimum, maximum)
+    }
+
+    fn select_peak_range(
+        &self,
+        values: &[f64],
+        column: &'static str,
+        minimum: f64,
+        maximum: f64,
+    ) -> Result<Self, RunError> {
+        if !minimum.is_finite() || !maximum.is_finite() || minimum < 0.0 || maximum < minimum {
+            return Err(RunError::InvalidPeakRange {
+                column,
+                minimum,
+                maximum,
+            });
+        }
+        Ok(self.select_peaks(|row| minimum <= values[row] && values[row] <= maximum))
+    }
+
+    fn select_peaks(&self, predicate: impl Fn(usize) -> bool) -> Self {
+        match &self.layout {
+            Layout::Flat { .. } => self.select(predicate),
+            Layout::Scans(scans) => {
+                let mut columns = scans.0.clone();
+                columns.peak_offsets.clear();
+                columns.peak_offsets.push(0);
+                let mut rows = Vec::new();
+                for scan in 0..scans.len() {
+                    rows.extend(scans.peak_range(scan).filter(|&row| predicate(row)));
+                    columns.peak_offsets.push(rows.len());
+                }
+                self.select_rows(&rows, Layout::Scans(ScanTable(columns)))
+            }
+        }
     }
 
     fn selectable_rt(&self) -> Option<&[Option<f64>]> {
@@ -508,15 +551,19 @@ impl Run {
                 (rows, Layout::Scans(table))
             }
         };
+        self.select_rows(&rows, layout)
+    }
+
+    fn select_rows(&self, rows: &[usize], layout: Layout) -> Self {
         let peaks = PeakColumns {
-            mz: pick(&self.peaks.mz, &rows),
-            intensity: pick(&self.peaks.intensity, &rows),
-            rt: self.peaks.rt.as_ref().map(|values| pick(values, &rows)),
+            mz: pick(&self.peaks.mz, rows),
+            intensity: pick(&self.peaks.intensity, rows),
+            rt: self.peaks.rt.as_ref().map(|values| pick(values, rows)),
             signal_to_noise: self
                 .peaks
                 .signal_to_noise
                 .as_ref()
-                .map(|values| pick(values, &rows)),
+                .map(|values| pick(values, rows)),
         };
         // Columns are already validated and in seconds; do not normalize again.
         Self::assemble(self.source.clone(), peaks, layout)
@@ -744,30 +791,6 @@ fn normalize_rt(values: &mut [Option<f64>], unit: RtUnit) -> Result<(), (usize, 
     Ok(())
 }
 
-/// Brackets the query with the closest recorded values on each side, avoiding
-/// rounded absolute distances for extreme queries.
-fn nearest(values: &[Option<f64>], rt: f64) -> Option<f64> {
-    let mut earlier = None;
-    let mut later = None;
-    for value in values.iter().copied().flatten() {
-        if value <= rt {
-            if earlier.is_none_or(|best| value > best) {
-                earlier = Some(value);
-            }
-        } else if later.is_none_or(|best| value < best) {
-            later = Some(value);
-        }
-    }
-    match (earlier, later) {
-        (Some(earlier), Some(later)) => Some(if rt - earlier <= later - rt {
-            earlier
-        } else {
-            later
-        }),
-        (earlier, later) => earlier.or(later),
-    }
-}
-
 fn pick<T: Clone>(values: &[T], positions: &[usize]) -> Vec<T> {
     positions
         .iter()
@@ -790,6 +813,11 @@ pub enum RunError {
     InvalidRtRange {
         start: f64,
         end: f64,
+    },
+    InvalidPeakRange {
+        column: &'static str,
+        minimum: f64,
+        maximum: f64,
     },
     ColumnLengthMismatch {
         column: &'static str,
@@ -838,6 +866,14 @@ impl fmt::Display for RunError {
             Self::InvalidRtRange { start, end } => {
                 write!(f, "RT range start {start} exceeds end {end}")
             }
+            Self::InvalidPeakRange {
+                column,
+                minimum,
+                maximum,
+            } => write!(
+                f,
+                "{column} slice bounds must be finite, nonnegative and ordered; got [{minimum}, {maximum}]"
+            ),
             Self::ColumnLengthMismatch {
                 column,
                 expected,
@@ -1071,6 +1107,10 @@ mod tests {
             Run::flat(source(None), vec![8, 2, 8], columns()),
             Err(RunError::DuplicatePeakId { row: 2, peak_id: 8 })
         );
+        assert_eq!(
+            Run::flat(source(None), vec![2, 2, 8], columns()),
+            Err(RunError::DuplicatePeakId { row: 1, peak_id: 2 })
+        );
         let mut with_rt = columns();
         with_rt.rt = Some(vec![None; 3]);
         assert_eq!(
@@ -1144,9 +1184,9 @@ mod tests {
     }
 
     #[test]
-    fn exact_selection_preserves_duplicates_values_schema_and_source() {
+    fn equal_bound_slice_preserves_duplicates_values_schema_and_source() {
         let run = selection_run();
-        let selected = run.get_rt_slice(300.0, RtMode::Exact).unwrap();
+        let selected = run.get_rt_slice(300.0, 300.0).unwrap();
         assert_eq!(selected.peak_ids(), Some([2, 5].as_slice()));
         assert_eq!(selected.mz(), &[50.0, 100.0]);
         assert_eq!(selected.intensity(), &[20.0, 10.0]);
@@ -1164,7 +1204,7 @@ mod tests {
         assert_eq!(run.peak_count(), 5);
         assert_eq!(run.summary().rt_bounds, Some((0.0, 360.0)));
         let adjacent = f64::from_bits(300.0_f64.to_bits() + 1);
-        let empty = run.get_rt_slice(adjacent, RtMode::Exact).unwrap();
+        let empty = run.get_rt_slice(adjacent, adjacent).unwrap();
         assert!(empty.is_empty());
         assert_eq!(empty.schema(), run.schema());
         assert_eq!(empty.peak_rt(), Some([].as_slice()));
@@ -1172,23 +1212,19 @@ mod tests {
     }
 
     #[test]
-    fn nearest_selects_all_matches_with_earlier_ties_and_endpoint_behavior() {
+    fn rt_slice_includes_both_bounds_and_preserves_source_order() {
         let run = selection_run();
-        for query in [300.0, 301.0, 330.0] {
-            assert_eq!(
-                run.get_rt_slice(query, RtMode::Nearest).unwrap().peak_ids(),
-                Some([2, 5].as_slice())
-            );
-        }
         assert_eq!(
-            run.get_rt_slice(0.0, RtMode::Nearest).unwrap().peak_ids(),
-            Some([7].as_slice())
+            run.get_rt_slice(300.0, 360.0).unwrap().peak_ids(),
+            Some([8, 2, 5].as_slice())
         );
         assert_eq!(
-            run.get_rt_slice(f64::MAX, RtMode::Nearest)
-                .unwrap()
-                .peak_ids(),
-            Some([8].as_slice())
+            run.get_rt_slice(0.0, 300.0).unwrap().peak_ids(),
+            Some([2, 5, 7].as_slice())
+        );
+        assert_eq!(
+            run.get_rt_slice(0.0, f64::MAX).unwrap().peak_ids(),
+            Some([8, 2, 5, 7].as_slice())
         );
     }
 
@@ -1197,13 +1233,8 @@ mod tests {
         let run = selection_run();
         let region = run.get_rt_range(300.0, 360.0).unwrap();
         assert_eq!(region.peak_ids(), Some([2, 5].as_slice()));
-        assert_eq!(region.get_rt_slice(360.0, RtMode::Nearest).unwrap(), region);
-        assert!(
-            region
-                .get_rt_slice(360.0, RtMode::Exact)
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(region.get_rt_slice(300.0, 300.0).unwrap(), region);
+        assert!(region.get_rt_slice(360.0, 360.0).unwrap().is_empty());
         assert!(run.get_rt_range(300.0, 300.0).unwrap().is_empty());
         assert_eq!(
             run.get_rt_range(0.0, 300.0).unwrap().peak_ids(),
@@ -1211,43 +1242,101 @@ mod tests {
         );
         let later = run.get_rt_range(360.0, 400.0).unwrap();
         assert_eq!(
-            later
-                .get_rt_slice(300.0, RtMode::Nearest)
-                .unwrap()
-                .peak_ids(),
+            later.get_rt_slice(360.0, 360.0).unwrap().peak_ids(),
             Some([8].as_slice())
         );
+        assert!(later.get_rt_slice(0.0, 300.0).unwrap().is_empty());
         assert_eq!(later.source(), run.source());
         assert_eq!(run.get_ms_level(1), Err(RunError::MsLevelUnavailable));
     }
 
     #[test]
+    fn peak_slices_are_inclusive_and_preserve_rows_and_metadata() {
+        let run = selection_run();
+        let selected = run.get_mz_slice(50.0, 100.0).unwrap();
+        assert_eq!(selected.peak_ids(), Some([8, 2, 5, 7].as_slice()));
+        assert_eq!(selected.mz(), &[100.0, 50.0, 100.0, 75.0]);
+        assert_eq!(
+            selected.peak_rt(),
+            Some([Some(360.0), Some(300.0), Some(300.0), Some(0.0)].as_slice())
+        );
+        assert_eq!(
+            selected.signal_to_noise(),
+            Some([None, Some(0.0), Some(10.0), None].as_slice())
+        );
+        assert_eq!(selected.source(), run.source());
+        assert_eq!(selected.schema(), run.schema());
+        assert_eq!(selected.summary().mz_bounds, Some((50.0, 100.0)));
+        assert_eq!(
+            run.get_mz_slice(100.0, 100.0).unwrap().peak_ids(),
+            Some([8, 5].as_slice())
+        );
+        assert_eq!(
+            run.get_intensity_slice(5.0, 20.0).unwrap().peak_ids(),
+            Some([2, 5, 7].as_slice())
+        );
+        assert_eq!(
+            selected.get_intensity_slice(0.0, 0.0).unwrap().peak_ids(),
+            Some([8].as_slice())
+        );
+        assert_eq!(
+            run.get_intensity_slice(30.0, 30.0).unwrap().peak_rt(),
+            Some([None].as_slice())
+        );
+        let empty = run.get_mz_slice(200.0, 300.0).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.schema(), run.schema());
+        assert_eq!(empty.source(), run.source());
+        assert_eq!(empty.peak_rt(), Some([].as_slice()));
+        assert_eq!(empty.summary().mz_bounds, None);
+        assert_eq!(run.peak_count(), 5);
+    }
+
+    #[test]
+    fn peak_slices_reject_invalid_bounds() {
+        let run = selection_run();
+        for (minimum, maximum) in [
+            (f64::NAN, 1.0),
+            (0.0, f64::NAN),
+            (f64::NEG_INFINITY, 1.0),
+            (0.0, f64::INFINITY),
+            (-1.0, 1.0),
+            (2.0, 1.0),
+        ] {
+            assert!(matches!(
+                run.get_mz_slice(minimum, maximum),
+                Err(RunError::InvalidPeakRange { column: "m/z", .. })
+            ));
+            assert!(matches!(
+                run.get_intensity_slice(minimum, maximum),
+                Err(RunError::InvalidPeakRange {
+                    column: "intensity",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
     fn selection_distinguishes_unavailable_rt_from_no_matches_and_rejects_bad_queries() {
         let absent = Run::flat(source(None), ids(), columns()).unwrap();
-        assert_eq!(
-            absent.get_rt_slice(1.0, RtMode::Exact),
-            Err(RunError::RtUnavailable)
-        );
+        assert_eq!(absent.get_rt_slice(1.0, 1.0), Err(RunError::RtUnavailable));
         assert_eq!(absent.get_rt_range(0.0, 1.0), Err(RunError::RtUnavailable));
         let mut nulls = columns();
         nulls.rt = Some(vec![None; 3]);
         let all_null = Run::flat(source(seconds()), ids(), nulls).unwrap();
-        for mode in [RtMode::Exact, RtMode::Nearest] {
-            let empty = all_null.get_rt_slice(1.0, mode).unwrap();
-            assert!(empty.is_empty());
-            assert!(empty.get_rt_slice(1.0, mode).unwrap().is_empty());
-            assert_eq!(empty.source(), all_null.source());
-            assert_eq!(empty.schema(), all_null.schema());
-        }
+        let empty = all_null.get_rt_slice(1.0, 1.0).unwrap();
+        assert!(empty.is_empty());
+        assert!(empty.get_rt_slice(1.0, 1.0).unwrap().is_empty());
+        assert_eq!(empty.source(), all_null.source());
+        assert_eq!(empty.schema(), all_null.schema());
         assert!(all_null.get_rt_range(0.0, 2.0).unwrap().is_empty());
         for invalid in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            for mode in [RtMode::Exact, RtMode::Nearest] {
+            for (start, end) in [(invalid, 1.0), (0.0, invalid)] {
                 assert!(matches!(
-                    all_null.get_rt_slice(invalid, mode),
+                    all_null.get_rt_slice(start, end),
                     Err(RunError::InvalidQueryRt(_))
                 ));
-            }
-            for (start, end) in [(invalid, 1.0), (0.0, invalid)] {
                 assert!(matches!(
                     all_null.get_rt_range(start, end),
                     Err(RunError::InvalidQueryRt(_))
@@ -1256,6 +1345,13 @@ mod tests {
         }
         assert_eq!(
             all_null.get_rt_range(2.0, 1.0),
+            Err(RunError::InvalidRtRange {
+                start: 2.0,
+                end: 1.0
+            })
+        );
+        assert_eq!(
+            all_null.get_rt_slice(2.0, 1.0),
             Err(RunError::InvalidRtRange {
                 start: 2.0,
                 end: 1.0
@@ -1325,7 +1421,7 @@ mod tests {
     #[test]
     fn scan_selections_keep_whole_scans_and_rebuild_offsets() {
         let run = scan_run();
-        let exact = run.get_rt_slice(60.0, RtMode::Exact).unwrap();
+        let exact = run.get_rt_slice(60.0, 60.0).unwrap();
         assert_eq!(exact.scans().unwrap().index(), &[10, 11]);
         assert_eq!(exact.scans().unwrap().peak_offsets(), &[0, 2, 3]);
         assert_eq!(exact.mz(), &[100.0, 200.0, 150.0]);
@@ -1334,22 +1430,59 @@ mod tests {
             Some([Some(1.0), None, Some(3.0)].as_slice())
         );
         assert_eq!(exact.source(), run.source());
-        assert_eq!(run.get_rt_slice(70.0, RtMode::Nearest).unwrap(), exact);
         assert_eq!(run.get_rt_range(60.0, 120.0).unwrap(), exact);
+        let inclusive = run.get_rt_slice(60.0, 120.0).unwrap();
+        assert_eq!(inclusive.scans().unwrap().index(), &[10, 11, 12]);
+        assert_eq!(inclusive.scans().unwrap().peak_offsets(), &[0, 2, 3, 3]);
+        assert_eq!(inclusive.mz(), &[100.0, 200.0, 150.0]);
 
         let ms1 = run.get_ms_level(1).unwrap();
         assert_eq!(ms1.scans().unwrap().native_id(), &["scan=1", "scan=3"]);
-        let tie = ms1.get_rt_slice(90.0, RtMode::Nearest).unwrap();
-        assert_eq!(tie.scans().unwrap().index(), &[10]);
-        let empty_scan = ms1.get_rt_slice(120.0, RtMode::Exact).unwrap();
+        let both = ms1.get_rt_slice(60.0, 120.0).unwrap();
+        assert_eq!(both.scans().unwrap().index(), &[10, 12]);
+        let empty_scan = ms1.get_rt_slice(120.0, 120.0).unwrap();
         assert_eq!(empty_scan.scan_count(), Some(1));
         assert_eq!(empty_scan.peak_count(), 0);
         assert!(!empty_scan.is_empty());
 
-        let none = run.get_rt_slice(1.0, RtMode::Exact).unwrap();
+        let none = run.get_rt_slice(1.0, 1.0).unwrap();
         assert!(none.is_empty());
         assert_eq!(none.scans().unwrap().peak_offsets(), &[0]);
         assert_eq!(none.schema(), run.schema());
+    }
+
+    #[test]
+    fn peak_slices_preserve_all_scans_and_rebuild_offsets() {
+        let run = scan_run();
+        for selected in [
+            run.get_mz_slice(150.0, 300.0).unwrap(),
+            run.get_intensity_slice(2.0, 4.0).unwrap(),
+        ] {
+            let mut expected_scans = run.scans().unwrap().0.clone();
+            expected_scans.peak_offsets = vec![0, 1, 2, 2, 3];
+            assert_eq!(selected.scans(), Some(&ScanTable(expected_scans)));
+            assert_eq!(selected.mz(), &[200.0, 150.0, 300.0]);
+            assert_eq!(selected.intensity(), &[2.0, 3.0, 4.0]);
+            assert_eq!(
+                selected.signal_to_noise(),
+                Some([None, Some(3.0), None].as_slice())
+            );
+            assert_eq!(selected.peak(1).unwrap().retention_time(), Some(60.0));
+            assert_eq!(selected.peak(2).unwrap().retention_time(), None);
+            assert_eq!(selected.source(), run.source());
+            assert_eq!(selected.schema(), run.schema());
+            assert_eq!(selected.summary().mz_bounds, Some((150.0, 300.0)));
+            assert_eq!(selected.summary().scan_count, Some(4));
+            let ms1 = selected.get_ms_level(1).unwrap();
+            assert_eq!(ms1.scans().unwrap().peak_offsets(), &[0, 1, 1]);
+            assert_eq!(ms1.mz(), &[200.0]);
+        }
+        let empty = run.get_mz_slice(500.0, 600.0).unwrap();
+        assert_eq!(empty.peak_count(), 0);
+        assert_eq!(empty.scans().unwrap().peak_offsets(), &[0, 0, 0, 0, 0]);
+        assert_eq!(empty.summary().rt_bounds, run.summary().rt_bounds);
+        assert!(!empty.is_empty());
+        assert_eq!(run.peak_count(), 5);
     }
 
     #[test]

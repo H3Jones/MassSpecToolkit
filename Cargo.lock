@@ -241,6 +241,7 @@ name = "ms-py"
 version = "0.1.0"
 dependencies = [
  "ms-core",
+ "ms-readers",
  "pyo3",
 ]
 

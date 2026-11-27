@@ -33,7 +33,7 @@ class ReadTxtTests(unittest.TestCase):
         self.assertEqual(explicit.peak_rt, [360.0, 330.0, 330.0, 420.0, 0.0])
         self.assertEqual(explicit.source.source_id, "sample")
         self.assertEqual(explicit.source.rt_unit_origin, "caller")
-        self.assertEqual(explicit.get_rt_slice(330.0, mode="exact").peak_ids, [1, 2])
+        self.assertEqual(explicit.get_rt_slice(330.0, 330.0).peak_ids, [1, 2])
 
     def test_from_text_file_errors(self) -> None:
         with self.assertRaises(FileNotFoundError):
@@ -99,22 +99,39 @@ class ReadTxtTests(unittest.TestCase):
     def test_rt_selections(self) -> None:
         run = ms_py.read_txt(RT_PEAKS)
         for selected in [
-            run.get_rt_slice(5.5, mode="exact"),
-            run.get_rt_slice(5.6, mode="nearest"),
+            run.get_rt_slice(5.5, 5.5),
             run.get_rt_range(5.5, 6.0),
         ]:
             self.assertEqual(selected.peak_ids, [1, 2])
             self.assertEqual(selected.mz, [100.0, 200.0])
             self.assertEqual(selected.source.source_id, "rt_peaks.csv")
-        empty = run.get_rt_slice(5.6, mode="exact")
+        inclusive = run.get_rt_slice(minimum=5.5, maximum=6.0)
+        self.assertEqual(inclusive.peak_ids, [0, 1, 2])
+        self.assertEqual(inclusive.summary.rt_bounds, (5.5, 6.0))
+        self.assertEqual(run.get_rt_slice(0.0, 0.0).peak_ids, [4])
+        empty = run.get_rt_slice(5.6, 5.6)
         self.assertTrue(empty.is_empty)
         self.assertEqual(empty.peak_rt, [])
         self.assertIsNone(empty.summary.mz_bounds)
-        self.assertEqual(run.get_rt_slice(5.75, mode="nearest").peak_ids, [1, 2])
-        with self.assertRaisesRegex(ValueError, "mode"):
-            run.get_rt_slice(5.5, mode="closest")
         with self.assertRaises(TypeError):
-            run.get_rt_slice(5.5)  # type: ignore[call-arg]
+            run.get_rt_slice(5.5, mode="exact")  # type: ignore[call-arg]
+        for minimum, maximum in [
+            (float("nan"), 1),
+            (0, float("inf")),
+            (-1, 1),
+            (2, 1),
+        ]:
+            with self.subTest(bounds=(minimum, maximum)):
+                with self.assertRaises(ValueError):
+                    run.get_rt_slice(minimum, maximum)
+        layout = ms_py.TxtFormat(
+            skip_lines=1, column_count=4, mz_column=1, intensity_column=2
+        )
+        no_rt = ms_py.Run.from_text_file(RT_PEAKS, layout)
+        with self.assertRaisesRegex(ValueError, "no RT column"):
+            no_rt.get_rt_slice(0, 1)
+        with self.assertRaisesRegex(ValueError, "no RT column"):
+            no_rt.get_rt_slice()
         with self.assertRaises(ValueError):
             run.get_rt_range(6.0, 5.0)
         with self.assertRaises(ValueError):
@@ -127,9 +144,79 @@ class ReadTxtTests(unittest.TestCase):
         self.assertEqual(
             (run.source.rt_unit, run.source.rt_unit_origin), ("minutes", "caller")
         )
-        self.assertEqual(run.get_rt_slice(330.0, mode="exact").peak_ids, [1, 2])
+        self.assertEqual(run.get_rt_slice(330.0, 330.0).peak_ids, [1, 2])
         with self.assertRaisesRegex(ValueError, "hours"):
             ms_py.read_txt(RT_PEAKS, rt_unit="hours")
+
+    def test_peak_slices(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        selected = run.get_mz_slice(100, 200)
+        self.assertEqual(selected.peak_ids, [1, 2, 3])
+        self.assertEqual(selected.mz, [100.0, 200.0, 100.0])
+        self.assertEqual(selected.peak_rt, [5.5, 5.5, 7.0])
+        self.assertEqual(selected.signal_to_noise, [10.0, 30.0, 5.0])
+        self.assertEqual(selected.source.source_id, run.source.source_id)
+        self.assertEqual(selected.summary.mz_bounds, (100.0, 200.0))
+        self.assertEqual(selected.get_intensity_slice(250, 500).peak_ids, [1, 2])
+        self.assertEqual(run.get_mz_slice(100, 100).peak_ids, [1, 3])
+        self.assertEqual(run.get_intensity_slice(0, 0).peak_ids, [4])
+        empty = run.get_mz_slice(400, 500)
+        self.assertTrue(empty.is_empty)
+        self.assertEqual(empty.peak_rt, [])
+        self.assertIsNone(empty.summary.mz_bounds)
+        self.assertEqual(run.peak_count, 5)
+
+    def test_optional_slice_bounds(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        cases = [
+            (run.get_rt_slice, 6.0, 5.5, [0, 3], [1, 2, 4]),
+            (run.get_mz_slice, 200.0, 100.0, [0, 2], [1, 3, 4]),
+            (run.get_intensity_slice, 250.0, 125.0, [0, 1, 2], [3, 4]),
+        ]
+        for select, minimum, maximum, above, below in cases:
+            with self.subTest(method=select.__name__):
+                self.assertEqual(select(minimum=minimum).peak_ids, above)
+                self.assertEqual(select(minimum).peak_ids, above)
+                self.assertEqual(select(minimum, None).peak_ids, above)
+                self.assertEqual(select(maximum=maximum).peak_ids, below)
+                self.assertEqual(select(None, maximum).peak_ids, below)
+                self.assertEqual(select().peak_ids, run.peak_ids)
+                self.assertEqual(select(None, None).peak_ids, run.peak_ids)
+                empty = select(minimum=1e6)
+                self.assertTrue(empty.is_empty)
+                self.assertTrue(getattr(empty, select.__name__)().is_empty)
+                for kwargs in [
+                    {"minimum": float("inf")},
+                    {"maximum": float("inf")},
+                    {"minimum": float("nan")},
+                    {"maximum": -1},
+                ]:
+                    with self.subTest(bounds=kwargs):
+                        with self.assertRaises(ValueError):
+                            select(**kwargs)
+
+        selected = (
+            run.get_mz_slice(100, 300)
+            .get_intensity_slice(minimum=250)
+            .get_rt_slice(maximum=6.0)
+        )
+        self.assertEqual(selected.peak_ids, [0, 1, 2])
+        self.assertEqual(selected.source.source_id, run.source.source_id)
+
+    def test_peak_slice_bounds(self) -> None:
+        run = ms_py.Run.from_text_file(RT_PEAKS)
+        for select in [run.get_mz_slice, run.get_intensity_slice]:
+            for minimum, maximum in [
+                (float("nan"), 1),
+                (0, float("inf")),
+                (-1, 1),
+                (2, 1),
+            ]:
+                with self.subTest(method=select, bounds=(minimum, maximum)):
+                    with self.assertRaisesRegex(
+                        ValueError, "finite, nonnegative and ordered"
+                    ):
+                        select(minimum, maximum)
 
     def test_invalid_input(self) -> None:
         with self.assertRaises(FileNotFoundError):

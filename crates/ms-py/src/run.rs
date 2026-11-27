@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use ms_core::run::{RtMode, RtUnit, RtUnitOrigin, Run, RunError, RunLayout};
+use ms_core::run::{RtUnit, RtUnitOrigin, Run, RunError, RunLayout};
 use ms_core::spectrum::Peak;
 use ms_readers::readers::txt::{
     TxtDelimiter, TxtFormat, TxtReadError, TxtReadOptions, guess_txt_format as guess_format, read,
@@ -35,7 +35,7 @@ fn optional_repr<T: std::fmt::Debug>(value: Option<T>) -> String {
 
 /// One peak row. RT is in seconds; `None` means the value is absent.
 #[derive(Clone)]
-#[pyclass(name = "Peak", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "Peak", frozen, get_all, module = "ms_py._core")]
 struct PyPeak {
     mz: f64,
     intensity: f64,
@@ -68,7 +68,7 @@ impl PyPeak {
 }
 
 /// Optional-column presence; it survives empty runs and selections.
-#[pyclass(name = "RunSchema", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "RunSchema", frozen, get_all, module = "ms_py._core")]
 struct PyRunSchema {
     layout: &'static str,
     has_rt: bool,
@@ -76,7 +76,7 @@ struct PyRunSchema {
 }
 
 /// Source identity, preserved by selections.
-#[pyclass(name = "SourceInfo", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "SourceInfo", frozen, get_all, module = "ms_py._core")]
 struct PySourceInfo {
     source_id: String,
     filename: String,
@@ -87,7 +87,7 @@ struct PySourceInfo {
 }
 
 /// Counts and bounds for the current run only.
-#[pyclass(name = "RunSummary", frozen, get_all, module = "ms_py")]
+#[pyclass(name = "RunSummary", frozen, get_all, module = "ms_py._core")]
 struct PyRunSummary {
     peak_count: usize,
     scan_count: Option<usize>,
@@ -97,7 +97,7 @@ struct PyRunSummary {
 }
 
 /// A run of peaks. Selections return new runs; RT values and queries are seconds.
-#[pyclass(name = "Run", frozen, module = "ms_py")]
+#[pyclass(name = "Run", frozen, module = "ms_py._core")]
 struct PyRun(Run);
 
 #[pymethods]
@@ -218,19 +218,15 @@ impl PyRun {
         self.0.peaks().map(PyPeak::from).collect()
     }
 
-    /// Selects every unit at `rt` seconds (`mode="exact"`) or at the nearest RT.
-    #[pyo3(signature = (rt, *, mode))]
-    fn get_rt_slice(&self, rt: f64, mode: &str) -> PyResult<Self> {
-        let mode = match mode {
-            "exact" => RtMode::Exact,
-            "nearest" => RtMode::Nearest,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "mode must be \"exact\" or \"nearest\", got {mode:?}"
-                )));
-            }
-        };
-        self.0.get_rt_slice(rt, mode).map(Self).map_err(run_error)
+    /// Selects rows or whole scans with `minimum <= RT <= maximum`, in seconds.
+    ///
+    /// Omitted bounds are open. Missing RTs are excluded.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_rt_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
+        self.0
+            .get_rt_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
+            .map(Self)
+            .map_err(run_error)
     }
 
     /// Selects units with `start <= RT < end`, in seconds.
@@ -240,6 +236,87 @@ impl PyRun {
 
     fn get_ms_level(&self, level: u8) -> PyResult<Self> {
         self.0.get_ms_level(level).map(Self).map_err(run_error)
+    }
+
+    /// Retains peaks with `minimum <= m/z <= maximum`.
+    ///
+    /// Omitted bounds are open.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_mz_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
+        self.0
+            .get_mz_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
+            .map(Self)
+            .map_err(run_error)
+    }
+
+    /// Retains peaks with `minimum <= intensity <= maximum` in the original scale.
+    ///
+    /// Omitted bounds are open.
+    #[pyo3(signature = (minimum = None, maximum = None))]
+    fn get_intensity_slice(&self, minimum: Option<f64>, maximum: Option<f64>) -> PyResult<Self> {
+        self.0
+            .get_intensity_slice(minimum.unwrap_or(0.0), maximum.unwrap_or(f64::MAX))
+            .map(Self)
+            .map_err(run_error)
+    }
+
+    /// Returns sorted RTs in seconds and summed intensities for a flat run.
+    fn calculate_tic<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("calculate_tic", (slf,))
+    }
+
+    /// Returns an unrendered `seaborn.objects.Plot` of a single spectrum.
+    #[pyo3(signature = (*, style = "sticks", bins = None, mz_range = None))]
+    fn plot_spectrum<'py>(
+        slf: &Bound<'py, Self>,
+        style: &str,
+        bins: Option<usize>,
+        mz_range: Option<(f64, f64)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("mass_spectrum", (slf, style, bins, mz_range))
+    }
+
+    /// Returns an unrendered `seaborn.objects.Plot` of peak RT against m/z.
+    fn plot_rt_mz<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("rt_mz", (slf,))
+    }
+
+    /// Returns an unrendered total ion chromatogram from `calculate_tic()`.
+    fn plot_tic<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("tic", (slf,))
+    }
+
+    /// Returns an unrendered extracted ion chromatogram for a specific m/z value.
+    #[pyo3(signature = (mz_target, tolerance = 0.0))]
+    fn plot_eic<'py>(
+        slf: &Bound<'py, Self>,
+        mz_target: f64,
+        tolerance: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        slf.py()
+            .import("ms_py.plotting")?
+            .call_method1("eic", (slf, mz_target, tolerance))
+    }
+
+    /// Returns an unrendered Kendrick mass defect plot; `base` is a formula or exact mass.
+    #[pyo3(signature = (base = None))]
+    fn plot_kmd<'py>(
+        slf: &Bound<'py, Self>,
+        base: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let plotting = slf.py().import("ms_py.plotting")?;
+        match base {
+            Some(base) => plotting.call_method1("kmd", (slf, base)),
+            None => plotting.call_method1("kmd", (slf,)),
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -253,7 +330,7 @@ impl PyRun {
 }
 
 /// Text peak-list layout. Column indices are zero-based.
-#[pyclass(name = "TxtFormat", frozen, module = "ms_py")]
+#[pyclass(name = "TxtFormat", frozen, module = "ms_py._core")]
 struct PyTxtFormat(TxtFormat);
 
 #[pymethods]

@@ -6,7 +6,7 @@ use std::fs;
 
 use common::fixture_path;
 
-use ms_core::run::{RtMode, RtUnit, RtUnitOrigin, RunError, RunLayout};
+use ms_core::run::{RtUnit, RtUnitOrigin, RunError, RunLayout};
 use ms_readers::readers::txt::{
     TxtDelimiter, TxtFormat, TxtReadError, TxtReadOptions, guess_txt_format, read,
 };
@@ -117,12 +117,15 @@ fn reads_rt_csv_as_flat_run_and_selects_rows() {
     let unit = run.source().rt_unit.unwrap();
     assert_eq!(unit.input_unit(), RtUnit::Seconds);
     assert_eq!(unit.origin(), RtUnitOrigin::Default);
-    let exact = run.get_rt_slice(5.5, RtMode::Exact).unwrap();
+    let exact = run.get_rt_slice(5.5, 5.5).unwrap();
     assert_eq!(exact.peak_ids(), Some([1, 2].as_slice()));
     assert_eq!(exact.mz(), &[100.0, 200.0]);
     assert_eq!(exact.intensity(), &[250.0, 500.0]);
     assert_eq!(exact.source(), run.source());
-    assert_eq!(run.get_rt_slice(5.6, RtMode::Nearest).unwrap(), exact);
+    assert_eq!(
+        run.get_rt_slice(5.5, 6.0).unwrap().peak_ids(),
+        Some([0, 1, 2].as_slice())
+    );
     assert_eq!(run.get_rt_range(5.5, 6.0).unwrap(), exact);
 }
 
@@ -139,7 +142,7 @@ fn converts_caller_rt_units_to_seconds() {
     assert_eq!(run.peak_rt(), Some([Some(330.0), Some(330.0)].as_slice()));
     assert_eq!(run.peaks().next().unwrap().retention_time(), Some(330.0));
     assert_eq!(
-        run.get_rt_slice(330.0, RtMode::Exact).unwrap().peak_ids(),
+        run.get_rt_slice(330.0, 330.0).unwrap().peak_ids(),
         Some([0, 1].as_slice())
     );
 }
@@ -192,8 +195,5 @@ fn preserves_empty_schema_and_reports_input_and_rt_errors() {
     let run = read("100,20\n".as_bytes(), &no_rt, &minutes).unwrap();
     assert_eq!(run.peak_rt(), None);
     assert_eq!(run.source().rt_unit, None);
-    assert_eq!(
-        run.get_rt_slice(1.0, RtMode::Exact),
-        Err(RunError::RtUnavailable)
-    );
+    assert_eq!(run.get_rt_slice(1.0, 1.0), Err(RunError::RtUnavailable));
 }

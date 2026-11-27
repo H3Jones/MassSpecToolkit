@@ -1,6 +1,6 @@
 use std::{error::Error, fs::File, io::BufReader, path::Path};
 
-use ms_core::run::{RtMode, Run};
+use ms_core::run::Run;
 use ms_readers::readers::txt::{TxtReadOptions, guess_txt_format, read};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -16,8 +16,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     print_run("Full CSV", &run);
-    print_run("Exact 5.5 s", &run.get_rt_slice(5.5, RtMode::Exact)?);
-    print_run("Nearest 5.6 s", &run.get_rt_slice(5.6, RtMode::Nearest)?);
+    print_run("Exact 5.5 s", &run.get_rt_slice(5.5, 5.5)?);
+    print_run("Slice [5.5, 6.0] s", &run.get_rt_slice(5.5, 6.0)?);
     print_run("Range [5.5, 6.0) s", &run.get_rt_range(5.5, 6.0)?);
     Ok(())
 }
