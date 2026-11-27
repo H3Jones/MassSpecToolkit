@@ -86,8 +86,30 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(result["charge"], 0)
         self.assertGreaterEqual(result["retained_probability"], 0.9999)
 
+    def test_read_txt(self) -> None:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "ms-readers"
+            / "tests"
+            / "fixtures"
+            / "rt_peaks.csv"
+        )
+        process = self.run_example("read_txt.py", str(fixture))
+        self.assertEqual(process.returncode, 0, process.stderr)
+        result = json.loads(process.stdout)
+        self.assertEqual(result["peak_count"], 5)
+        self.assertEqual(result["rt_bounds"], [0.0, 7.0])
+        process = self.run_example(
+            "read_txt.py", str(fixture), "--rt-unit", "minutes", "--rt", "331"
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        result = json.loads(process.stdout)
+        self.assertEqual([p["peak_id"] for p in result["peaks"]], [1, 2])
+        self.assertEqual(result["peaks"][0]["retention_time"], 330.0)
+
     def test_cli_errors(self) -> None:
         cases = [
+            ("read_txt.py", ("missing.csv",), "error:"),
             ("parse_formula.py", (), "required"),
             ("parse_formula.py", ("not a formula",), "error:"),
             ("isotope_distribution.py", (), "required"),

@@ -7,6 +7,7 @@ Web app is available at https://h3jones.github.io/MassSpecToolkit/
 ## Structure
 
 - `crates/ms-core` — Rust mass spectrometry calculations.
+- `crates/ms-examples` — [Runnable Rust API examples](crates/ms-examples/README.md).
 - `crates/ms-wasm` — WebAssembly bindings for the Rust core.
 - `crates/ms-py` — [Python bindings](crates/ms-py/README.md) built with PyO3 and maturin.
 - `packages/ms-toolkit` — TypeScript web components, charts, and playground.

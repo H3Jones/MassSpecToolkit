@@ -4,7 +4,8 @@
 //! tabs, commas, semicolons, and pipes, with an optional header. Headerless input
 //! uses the first two columns for m/z and intensity; extra columns are ignored,
 //! never assumed to be S/N or retention time. Recognized headers can map reordered
-//! columns, S/N, and retention time (RT), retaining the original time units.
+//! columns, S/N, and retention time (RT). RT units come from [`TxtReadOptions`],
+//! defaulting to seconds; [`read`] returns a flat [`Run`] with RT in seconds.
 //! Blank lines and lines starting with `#` (after whitespace) are always ignored.
 //! Arbitrary preambles require an explicit `skip_lines` value.
 //!
@@ -12,12 +13,13 @@
 //! or pass a separate preview. No seeking is required by either function.
 //!
 //! ```
-//! use ms_readers::readers::txt::{guess_txt_format, read};
+//! use ms_readers::readers::txt::{TxtReadOptions, guess_txt_format, read};
 //!
 //! let input = "m/z,intensity,width\n202.85354,917992,0.00018\n";
 //! let spec = guess_txt_format(input.as_bytes())?;
-//! let spectrum = read(input.as_bytes(), &spec)?;
-//! assert_eq!(spectrum.peaks()[0].signal_to_noise(), None);
+//! let run = read(input.as_bytes(), &spec, &TxtReadOptions::new("peaks.csv"))?;
+//! assert_eq!(run.mz(), &[202.85354]);
+//! assert_eq!(run.signal_to_noise(), None);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -28,7 +30,10 @@ use std::{
     num::ParseFloatError,
 };
 
-use ms_core::spectrum::{MassSpectrum, Peak, SpectrumError};
+use ms_core::{
+    run::{PeakColumns, RtUnit, RtUnitMetadata, Run, RunError, SourceInfo},
+    spectrum::{Peak, SpectrumError},
+};
 
 const PREVIEW_LINES: usize = 32;
 
@@ -49,7 +54,7 @@ pub enum TxtDelimiter {
 /// notation; quoted fields and decimal commas are not supported.
 ///
 /// ```
-/// use ms_readers::readers::txt::{TxtDelimiter, TxtFormat, read};
+/// use ms_readers::readers::txt::{TxtDelimiter, TxtFormat, TxtReadOptions, read};
 ///
 /// let spec = TxtFormat {
 ///     delimiter: TxtDelimiter::Character('\t'),
@@ -60,8 +65,9 @@ pub enum TxtDelimiter {
 ///     signal_to_noise_column: None,
 ///     retention_time_column: None,
 /// };
-/// let spectrum = read("export\n202.85354\t917992\t0.00018\n".as_bytes(), &spec)?;
-/// assert_eq!(spectrum.peaks()[0].signal_to_noise(), None);
+/// let input = "export\n202.85354\t917992\t0.00018\n";
+/// let run = read(input.as_bytes(), &spec, &TxtReadOptions::default())?;
+/// assert_eq!(run.intensity(), &[917992.0]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,7 +82,9 @@ pub struct TxtFormat {
 }
 
 impl TxtFormat {
-    fn validate(&self) -> Result<(), TxtReadError> {
+    /// Checks the delimiter and that mapped columns are distinct and in range.
+    /// [`read`] and [`TxtStreamReader::new`] also validate.
+    pub fn validate(&self) -> Result<(), TxtReadError> {
         if matches!(self.delimiter, TxtDelimiter::Character('\r' | '\n' | '\0')) {
             return Err(TxtReadError::InvalidSpec(
                 "delimiter cannot be a line ending or NUL",
@@ -107,23 +115,89 @@ impl TxtFormat {
     }
 }
 
-/// Reads the entire input using an explicit (or previously guessed) layout.
+/// Source identity and RT unit for [`read`].
+///
+/// `rt_unit` is the caller's unit for a mapped RT column; `None` defaults to
+/// seconds. It is ignored when the layout maps no RT column.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TxtReadOptions {
+    pub source_id: String,
+    pub filename: String,
+    pub rt_unit: Option<RtUnit>,
+}
+
+impl TxtReadOptions {
+    /// Uses the filename as the source ID.
+    pub fn new(filename: impl Into<String>) -> Self {
+        let filename = filename.into();
+        Self {
+            source_id: filename.clone(),
+            filename,
+            rt_unit: None,
+        }
+    }
+}
+
+/// Reads the entire input into a flat [`Run`] using an explicit (or guessed) layout.
 ///
 /// Peak order, duplicate m/z values, and original intensities are preserved.
-/// Missing or malformed data is an error, not silently skipped. Empty input
-/// produces an empty spectrum, but an invalid spec is rejected even for empty input.
-pub fn read<R: Read>(input: R, spec: &TxtFormat) -> Result<MassSpectrum, TxtReadError> {
+/// Peak IDs start at zero in measurement order. Missing or malformed data is
+/// an error, not silently skipped. Empty input produces an empty run whose
+/// optional columns follow the layout; an invalid spec is rejected even then.
+pub fn read<R: Read>(
+    input: R,
+    spec: &TxtFormat,
+    options: &TxtReadOptions,
+) -> Result<Run, TxtReadError> {
     spec.validate()?;
-    let mut peaks = Vec::new();
-    for (index, line) in BufReader::new(input).lines().enumerate() {
-        let line = line.map_err(TxtReadError::Io)?;
-        let line = strip_bom(&line, index);
-        if index < spec.skip_lines || is_ignored(line) {
-            continue;
+    let rt_unit = spec.retention_time_column.map(|_| {
+        RtUnitMetadata::resolve(None, options.rt_unit)
+            .expect("text input declares no unit that could conflict")
+    });
+    let mut peaks = PeakColumns {
+        rt: spec.retention_time_column.map(|_| Vec::new()),
+        signal_to_noise: spec.signal_to_noise_column.map(|_| Vec::new()),
+        ..PeakColumns::default()
+    };
+    let mut reader = BufReader::new(input);
+    let mut line = String::new();
+    let mut index = 0;
+    // Reuse the buffer while preserving BufRead::lines newline handling.
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).map_err(TxtReadError::Io)? == 0 {
+            break;
         }
-        peaks.push(parse_peak(line, index + 1, spec)?);
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        let text = strip_bom(&line, index);
+        if index >= spec.skip_lines && !is_ignored(text) {
+            let peak = parse_peak(text, index + 1, spec)?;
+            peaks.mz.push(peak.mz());
+            peaks.intensity.push(peak.intensity());
+            if let Some(values) = &mut peaks.rt {
+                values.push(peak.retention_time());
+            }
+            if let Some(values) = &mut peaks.signal_to_noise {
+                values.push(peak.signal_to_noise());
+            }
+        }
+        index += 1;
     }
-    Ok(MassSpectrum::new(peaks))
+    let peak_id = (0..peaks.mz.len())
+        .map(|row| u64::try_from(row).map_err(|_| TxtReadError::PeakIdOverflow))
+        .collect::<Result<_, _>>()?;
+    let source = SourceInfo {
+        source_id: options.source_id.clone(),
+        filename: options.filename.clone(),
+        reader_format: "txt".to_owned(),
+        rt_unit,
+    };
+    Run::flat(source, peak_id, peaks).map_err(TxtReadError::Run)
 }
 
 /// Guesses a layout from at most the first 32 physical lines.
@@ -161,6 +235,7 @@ pub fn guess_txt_format<R: BufRead>(input: R) -> Result<TxtFormat, TxtReadError>
 
 /// Incremental decoded-text reader retaining only an unfinished physical line.
 /// Format detection and validation match [`guess_txt_format`] followed by [`read`].
+/// It yields validated records whose RT, if any, keeps the source's input unit.
 pub struct TxtStreamReader {
     spec: Option<TxtFormat>,
     guessing: bool,
@@ -279,28 +354,57 @@ fn split_columns(line: &str, delimiter: TxtDelimiter) -> Vec<&str> {
 }
 
 fn parse_peak(line: &str, line_number: usize, spec: &TxtFormat) -> Result<Peak, TxtReadError> {
-    let columns = split_columns(line, spec.delimiter);
-    if columns.len() != spec.column_count {
+    match spec.delimiter {
+        TxtDelimiter::Whitespace => parse_columns(line.split_whitespace(), line_number, spec),
+        TxtDelimiter::Character(separator) => {
+            parse_columns(line.split(separator).map(str::trim), line_number, spec)
+        }
+    }
+}
+
+fn parse_columns<'a>(
+    columns: impl Iterator<Item = &'a str>,
+    line_number: usize,
+    spec: &TxtFormat,
+) -> Result<Peak, TxtReadError> {
+    let mut fields = [None; 4];
+    let mut count = 0;
+    for (index, value) in columns.enumerate() {
+        count += 1;
+        if index == spec.mz_column {
+            fields[0] = Some(value);
+        } else if index == spec.intensity_column {
+            fields[1] = Some(value);
+        } else if Some(index) == spec.signal_to_noise_column {
+            fields[2] = Some(value);
+        } else if Some(index) == spec.retention_time_column {
+            fields[3] = Some(value);
+        }
+    }
+    if count != spec.column_count {
         return Err(TxtReadError::InvalidColumnCount {
             line: line_number,
             expected: spec.column_count,
-            actual: columns.len(),
+            actual: count,
         });
     }
-    let parse_column = |column: usize| {
-        columns[column]
+    let parse_column = |slot: usize, column: usize| {
+        let value = fields[slot].expect("validated format maps a field in each row");
+        value
             .parse::<f64>()
             .map_err(|source| TxtReadError::InvalidNumber {
                 line: line_number,
                 column: column + 1,
-                value: columns[column].to_owned(),
+                value: value.to_owned(),
                 source,
             })
     };
     let peak = Peak::new(
-        parse_column(spec.mz_column)?,
-        parse_column(spec.intensity_column)?,
-        spec.signal_to_noise_column.map(parse_column).transpose()?,
+        parse_column(0, spec.mz_column)?,
+        parse_column(1, spec.intensity_column)?,
+        spec.signal_to_noise_column
+            .map(|column| parse_column(2, column))
+            .transpose()?,
     )
     .map_err(|source| TxtReadError::InvalidPeak {
         line: line_number,
@@ -308,7 +412,7 @@ fn parse_peak(line: &str, line_number: usize, spec: &TxtFormat) -> Result<Peak, 
     })?;
     match spec.retention_time_column {
         Some(column) => peak
-            .with_retention_time(parse_column(column)?)
+            .with_retention_time(parse_column(3, column)?)
             .map_err(|source| TxtReadError::InvalidPeak {
                 line: line_number,
                 source,
@@ -400,6 +504,8 @@ fn guess_line(line: &str, line_number: usize) -> Result<(TxtFormat, bool), TxtRe
 #[derive(Debug)]
 pub enum TxtReadError {
     Io(io::Error),
+    Run(RunError),
+    PeakIdOverflow,
     InvalidSpec(&'static str),
     InvalidState(&'static str),
     NoSampleData,
@@ -427,6 +533,8 @@ impl fmt::Display for TxtReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(source) => write!(f, "failed to read text data: {source}"),
+            Self::Run(source) => write!(f, "invalid text run: {source}"),
+            Self::PeakIdOverflow => f.write_str("text measurement index exceeds a 64-bit peak ID"),
             Self::InvalidSpec(reason) => write!(f, "invalid text format spec: {reason}"),
             Self::InvalidState(reason) => write!(f, "invalid text reader state: {reason}"),
             Self::NoSampleData => write!(
@@ -463,6 +571,7 @@ impl Error for TxtReadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(source) => Some(source),
+            Self::Run(source) => Some(source),
             Self::InvalidNumber { source, .. } => Some(source),
             Self::InvalidPeak { source, .. } => Some(source),
             _ => None,
@@ -473,6 +582,20 @@ impl Error for TxtReadError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct Rows(Vec<Peak>);
+
+    impl Rows {
+        fn peaks(&self) -> &[Peak] {
+            &self.0
+        }
+    }
+
+    /// Reads with default options and views every row, RT in seconds.
+    fn read(input: impl Read, spec: &TxtFormat) -> Result<Rows, TxtReadError> {
+        super::read(input, spec, &TxtReadOptions::default()).map(|run| Rows(run.peaks().collect()))
+    }
 
     fn spec() -> TxtFormat {
         TxtFormat {
@@ -583,6 +706,82 @@ mod tests {
             "line 3, column 2: \"bad\" is not a valid number"
         );
         assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn reordered_columns_keep_line_numbers_and_error_priority() {
+        let manual = TxtFormat {
+            delimiter: TxtDelimiter::Character('\u{00a7}'),
+            skip_lines: 1,
+            column_count: 5,
+            mz_column: 3,
+            intensity_column: 1,
+            signal_to_noise_column: Some(4),
+            retention_time_column: Some(0),
+        };
+        let input = concat!(
+            "\u{feff}metadata\r\n# comment\r\n",
+            "1.5 \u{00a7} 20 \u{00a7} label \u{00a7} 43 \u{00a7} 10\r\n",
+            "2.5\u{00a7}0\u{00a7}\u{00a7}57\u{00a7}0\r",
+        );
+        let rows = read(input.as_bytes(), &manual).unwrap();
+        assert_eq!(
+            rows.peaks(),
+            [
+                Peak::new(43.0, 20.0, Some(10.0))
+                    .unwrap()
+                    .with_retention_time(1.5)
+                    .unwrap(),
+                Peak::new(57.0, 0.0, Some(0.0))
+                    .unwrap()
+                    .with_retention_time(2.5)
+                    .unwrap(),
+            ]
+        );
+
+        let error = |row: &str| {
+            let input = format!("metadata\r\n# comment\r\n{row}");
+            read(input.as_bytes(), &manual).unwrap_err()
+        };
+        assert!(matches!(
+            error("1\u{00a7}bad\u{00a7}label\u{00a7}0"),
+            TxtReadError::InvalidColumnCount {
+                line: 3,
+                expected: 5,
+                actual: 4
+            }
+        ));
+        assert!(matches!(
+            error("1\u{00a7}bad-intensity\u{00a7}label\u{00a7}bad-mz\u{00a7}0"),
+            TxtReadError::InvalidNumber {
+                line: 3,
+                column: 4,
+                ..
+            }
+        ));
+        assert!(matches!(
+            error("bad-rt\u{00a7}2\u{00a7}label\u{00a7}0\u{00a7}bad-sn"),
+            TxtReadError::InvalidNumber {
+                line: 3,
+                column: 5,
+                ..
+            }
+        ));
+        assert!(matches!(
+            error("bad-rt\u{00a7}2\u{00a7}label\u{00a7}0\u{00a7}5"),
+            TxtReadError::InvalidPeak {
+                line: 3,
+                source: SpectrumError::InvalidMz
+            }
+        ));
+        assert!(matches!(
+            error("bad-rt\u{00a7}2\u{00a7}label\u{00a7}1\u{00a7}5"),
+            TxtReadError::InvalidNumber {
+                line: 3,
+                column: 1,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -772,6 +971,10 @@ mod tests {
             assert!(matches!(error, TxtReadError::Io(_)));
             assert!(error.source().is_some());
         }
+        assert!(matches!(
+            read(b"1 20\n\xff".as_slice(), &spec()),
+            Err(TxtReadError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
+        ));
     }
 
     struct FailingRead;

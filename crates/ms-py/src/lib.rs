@@ -8,8 +8,10 @@ use ms_core::isotopes::{
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+mod run;
+
 #[derive(Clone)]
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct AtomCount {
     symbol: String,
     mass_number: u16,
@@ -20,7 +22,7 @@ struct AtomCount {
 }
 
 #[derive(Clone)]
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct FormulaResult {
     formula: String,
     mass: f64,
@@ -29,7 +31,7 @@ struct FormulaResult {
 }
 
 #[derive(Clone)]
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct IonResult {
     formula: String,
     charge: i32,
@@ -39,7 +41,7 @@ struct IonResult {
     atom_counts: Vec<AtomCount>,
 }
 
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct MassSplitResult {
     formula_a: FormulaResult,
     formula_b: FormulaResult,
@@ -49,7 +51,7 @@ struct MassSplitResult {
 }
 
 #[derive(Clone)]
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct FineIsotopePeakResult {
     label: String,
     mass: f64,
@@ -57,7 +59,7 @@ struct FineIsotopePeakResult {
     abundance: f64,
 }
 
-#[pyclass(frozen, get_all, module = "ms_py")]
+#[pyclass(frozen, get_all, module = "ms_py._core")]
 struct FineIsotopeDistributionResult {
     charge: i32,
     retained_probability: f64,
@@ -196,7 +198,7 @@ fn fine_isotope_distribution(
 }
 
 #[pymodule]
-fn ms_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<AtomCount>()?;
     module.add_class::<FormulaResult>()?;
     module.add_class::<IonResult>()?;
@@ -207,6 +209,7 @@ fn ms_py(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(evaluate_ion, module)?)?;
     module.add_function(wrap_pyfunction!(mass_split, module)?)?;
     module.add_function(wrap_pyfunction!(fine_isotope_distribution, module)?)?;
+    run::register(module)?;
     module.add("ELECTRON_MASS", ELECTRON_MASS)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())

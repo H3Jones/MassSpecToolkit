@@ -15,6 +15,8 @@ class ApiTests(unittest.TestCase):
         self.assertAlmostEqual(ms_py.ELECTRON_MASS, 0.000548579909065)
         self.assertTrue(files(ms_py).joinpath("__init__.pyi").is_file())
         self.assertTrue(files(ms_py).joinpath("py.typed").is_file())
+        self.assertTrue(files(ms_py).joinpath("plotting.py").is_file())
+        self.assertEqual(ms_py.Run.__module__, "ms_py._core")
 
     def test_parse_formula(self) -> None:
         result = ms_py.parse_formula("OH2")

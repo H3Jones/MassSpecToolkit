@@ -1,0 +1,9 @@
+[package]
+name = "ms-examples"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+ms-core = { path = "../ms-core" }
+ms-readers = { path = "../ms-readers", default-features = false, features = ["txt"] }
